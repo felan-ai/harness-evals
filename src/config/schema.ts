@@ -1,10 +1,20 @@
 export type WorkspaceMode = 'copy';
 
+export interface WorkspaceSetupCommand {
+  command: string;
+  args: string[];
+  cwd?: string;
+  timeoutMs?: number;
+}
+
 export interface WorkspaceConfig {
   source: string;
   mode: WorkspaceMode;
   containerPath: string;
   ignore: string[];
+  // Trusted commands executed without a shell in the resolved image after the
+  // workspace is mounted and before its baseline snapshot is captured.
+  setup?: WorkspaceSetupCommand[];
   fixture?: string;
   // When true, the workspace is seeded by extracting `seedPath` (default /app)
   // from the resolved Docker image instead of copying `source`/`fixture`.
@@ -289,6 +299,7 @@ export const DEFAULT_HARNESS_CONFIG: HarnessConfig = {
     mode: 'copy',
     containerPath: '/workspace',
     ignore: ['.git', 'node_modules', '.harness-evals', '.pi-evals', 'evals/output'],
+    setup: [],
   },
   docker: {
     repoPath: '/workspace',

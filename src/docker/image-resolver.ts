@@ -217,6 +217,7 @@ async function buildManagedImage(
 async function collectInstallRecipes(input: ImageResolutionInput): Promise<NormalizedInstallRecipe[]> {
   const recipes: NormalizedInstallRecipe[] = [];
   const seen = new Set<string>();
+  const installCacheKeys = new Map<string, string>();
 
   for (const selected of [...input.selectedAgents].sort(compareSelectedAgents)) {
     const adapter = input.adapterRegistry.require(selected.agent.adapter);
@@ -236,7 +237,16 @@ async function collectInstallRecipes(input: ImageResolutionInput): Promise<Norma
       agentName: selected.agentName,
       recipe,
     });
-    const key = stableStringify(normalized);
+    if (!input.docker.image && normalized.adapter === 'felan' && normalized.commands.length > 0 && normalized.cacheKey) {
+      const existingCacheKey = installCacheKeys.get(normalized.adapter);
+      if (existingCacheKey && existingCacheKey !== normalized.cacheKey) {
+        throw new Error(
+          `Selected ${normalized.adapter} agents require conflicting install recipes (${existingCacheKey} and ${normalized.cacheKey}); run those package versions separately or use distinct ready images`,
+        );
+      }
+      installCacheKeys.set(normalized.adapter, normalized.cacheKey);
+    }
+    const key = stableStringify({ ...normalized, agentName: undefined });
     if (seen.has(key)) continue;
     seen.add(key);
     recipes.push(normalized);

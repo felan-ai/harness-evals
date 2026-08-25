@@ -15,6 +15,7 @@ import { redactFile, redactJson, redactionsFromEnv, type Redaction } from '../re
 import { copyWorkspace } from '../workspace/copy.js';
 import { diffWorkspace } from '../workspace/diff.js';
 import { snapshotWorkspace, type WorkspaceSnapshot } from '../workspace/snapshot.js';
+import { setupWorkspace } from '../workspace/setup.js';
 import { createOutputDispatcher, type OutputDispatcher } from '../output/dispatcher.js';
 import { createOutputProviderRegistry, type OutputProviderRegistry } from '../output/registry.js';
 import { readMockCallLogs, strictMockFailures, summarizeMockCalls } from '../mocks/calls.js';
@@ -208,6 +209,17 @@ export async function runTestCase(
     } else {
       await copyWorkspace(entry.workspace.fixture ?? entry.workspace.source, workspaceDir, { ignore: entry.workspace.ignore });
     }
+    await setupWorkspace({
+      image: dockerImage,
+      workspaceDir,
+      workspace: entry.workspace,
+      configDir,
+      docker: entry.docker,
+      runDir,
+      caseId: entry.testCase.id,
+      agentName: entry.agentName,
+      redactions,
+    });
     if (!entry.workspace.seedFromImage && entry.testCase.verifier && shouldCaptureModelPatch(entry.testCase.verifier)) {
       await copyWorkspace(workspaceDir, baseWorkspaceDir, { ignore: [] });
       cleanupPaths.push(baseWorkspaceDir);

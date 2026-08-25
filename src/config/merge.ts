@@ -8,6 +8,7 @@ import {
   type ProjectScoringConfig,
   type VisualizationConfig,
   type WorkspaceConfig,
+  type WorkspaceSetupCommand,
 } from './schema.js';
 
 type VisualizationConfigOverride = Omit<Partial<VisualizationConfig>, 'include'> & { include?: Partial<VisualizationConfig['include']> };
@@ -44,12 +45,17 @@ export function withHarnessDefaults(config: HarnessConfigOverride): HarnessConfi
 }
 
 export function mergeWorkspaceConfig(base: WorkspaceConfig, override?: Partial<WorkspaceConfig>): WorkspaceConfig {
-  if (!override) return { ...base, ignore: [...base.ignore] };
+  if (!override) return { ...base, ignore: [...base.ignore], setup: cloneWorkspaceSetup(base.setup ?? []) };
   return {
     ...base,
     ...definedObject(override),
     ignore: override.ignore ? [...override.ignore] : [...base.ignore],
+    setup: override.setup ? cloneWorkspaceSetup(override.setup) : cloneWorkspaceSetup(base.setup ?? []),
   };
+}
+
+function cloneWorkspaceSetup(setup: WorkspaceSetupCommand[]): WorkspaceSetupCommand[] {
+  return setup.map((entry) => ({ ...entry, args: [...entry.args] }));
 }
 
 export function mergeDockerConfig(base: DockerConfig, override?: Partial<DockerConfig>): DockerConfig {

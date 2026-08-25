@@ -102,6 +102,8 @@ agents:
     provider: google
     model: gemini-2.5-pro
     thinking: high
+    config:
+      packageVersion: 0.14.2
 
 tests:
   - evals/tests/**/*.yaml

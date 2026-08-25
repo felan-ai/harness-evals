@@ -80,6 +80,79 @@ assert:
   }
 });
 
+test('workspace setup runs offline before the baseline snapshot and persists artifacts', async () => {
+  const root = await tempRoot();
+  const restoreDocker = await installFakeDocker(root);
+
+  try {
+    await writeHarnessProject(root, `
+id: workspace-setup
+workspace:
+  fixture: fixture
+  setup:
+    - command: node
+      args:
+        - -e
+        - |
+          const { writeFileSync } = require('node:fs');
+          writeFileSync('prepared.txt', process.env.HARNESS_FAKE_DOCKER_NETWORK || 'default');
+prompt: Read the prepared file.
+config:
+  script: |
+    const { readFileSync } = require('node:fs');
+    console.log(readFileSync('prepared.txt', 'utf8'));
+assert:
+  - type: contains
+    value: none
+`);
+
+    const result = await runHarness({ cwd: root, adapters: [createLifecycleAdapter([])] });
+    const run = result.results[0];
+
+    expect(run.pass).toBe(true);
+    expect(run.output).toBe('none');
+    expect(run.workspace.added).not.toContain('prepared.txt');
+    expect(await readFile(join(run.runDir, 'workspace', 'prepared.txt'), 'utf8')).toBe('none');
+    expect(JSON.parse(await readFile(join(run.runDir, 'workspace-setup', '01', 'result.json'), 'utf8'))).toMatchObject({
+      exitCode: 0,
+      timedOut: false,
+    });
+    expect(JSON.parse(await readFile(join(run.runDir, 'workspace-setup', '01', 'command.redacted.json'), 'utf8')).network).toEqual({ mode: 'none' });
+  } finally {
+    restoreDocker();
+  }
+});
+
+test('workspace setup failure stops the run before the agent and preserves diagnostics', async () => {
+  const root = await tempRoot();
+  const restoreDocker = await installFakeDocker(root);
+  const prepareCalls: PrepareCall[] = [];
+
+  try {
+    await writeHarnessProject(root, `
+id: workspace-setup-failure
+workspace:
+  setup:
+    - command: node
+      args: [-e, "console.error('setup failed'); process.exit(7)"]
+prompt: This must not run.
+config:
+  script: console.log('agent ran')
+assert: []
+`);
+
+    const result = await runHarness({ cwd: root, adapters: [createLifecycleAdapter(prepareCalls)] });
+    const run = result.results[0];
+
+    expect(run.status).toBe('error');
+    expect(run.error).toContain('Workspace setup command 1 (node) exited with code 7');
+    expect(prepareCalls).toHaveLength(0);
+    expect(await readFile(join(run.runDir, 'workspace-setup', '01', 'stderr.log'), 'utf8')).toContain('setup failed');
+  } finally {
+    restoreDocker();
+  }
+});
+
 test('adapter cleanup paths are kept by default and removed when cleanup is enabled', async () => {
   const root = await tempRoot();
   const restoreDocker = await installFakeDocker(root);

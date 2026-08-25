@@ -56,6 +56,62 @@ test('managed image mode builds once per manifest key and reuses a passing cache
   expect(commands.filter((args) => args[0] === 'run' && args.includes('probe-ok'))).toHaveLength(2);
 });
 
+test('managed image deduplicates identical install recipes across agent profiles', async () => {
+  const root = await tempRoot();
+  restores.push(await installFakeDocker(root));
+  const registry = await createAdapterRegistry({ projectRoot: root, declarations: {}, builtIns: [createProbeAdapter('probe-ok')] });
+
+  const result = await resolveDockerImage({
+    projectRoot: root,
+    docker: dockerConfig(),
+    selectedAgents: [
+      { agentName: 'profile-a', agent: { adapter: 'probe' } },
+      { agentName: 'profile-b', agent: { adapter: 'probe' } },
+    ],
+    adapterRegistry: registry,
+  });
+
+  expect(result.manifest?.recipes).toHaveLength(1);
+  expect(result.probes).toHaveLength(1);
+  const dockerfile = await readFile(join(root, '.harness-evals', 'image-cache', result.cacheKey!, 'Dockerfile'), 'utf8');
+  expect(dockerfile.match(/RUN echo installing probe/g)).toHaveLength(1);
+});
+
+test('managed image rejects conflicting Felan install cache keys', async () => {
+  const root = await tempRoot();
+  const registry = await createAdapterRegistry({ projectRoot: root, declarations: {}, builtIns: [createVersionedFelanAdapter()] });
+
+  await expect(resolveDockerImage({
+    projectRoot: root,
+    docker: dockerConfig(),
+    selectedAgents: [
+      { agentName: 'v1', agent: { adapter: 'felan', model: '1.0.0' } },
+      { agentName: 'v2', agent: { adapter: 'felan', model: '2.0.0' } },
+    ],
+    adapterRegistry: registry,
+  })).rejects.toThrow('conflicting install recipes (felan@1.0.0 and felan@2.0.0)');
+});
+
+test('ready images allow profile-specific Felan recipe cache keys', async () => {
+  const root = await tempRoot();
+  restores.push(await installFakeDocker(root));
+  const registry = await createAdapterRegistry({ projectRoot: root, declarations: {}, builtIns: [createVersionedFelanAdapter()] });
+
+  const result = await resolveDockerImage({
+    projectRoot: root,
+    docker: dockerConfig('ready-image'),
+    selectedAgents: [
+      { agentName: 'v1', agent: { adapter: 'felan', model: '1.0.0' } },
+      { agentName: 'v2', agent: { adapter: 'felan', model: '2.0.0' } },
+    ],
+    adapterRegistry: registry,
+  });
+
+  expect(result.mode).toBe('ready');
+  expect(result.probes).toHaveLength(2);
+  expect(result.probes.every((probe) => probe.pass)).toBe(true);
+});
+
 test('refreshing an existing managed image rebuilds with pull and no cache', async () => {
   const root = await tempRoot();
   restores.push(await installFakeDocker(root));
@@ -181,6 +237,26 @@ function createProbeAdapter(probeCommand: string): AgentAdapter {
     },
     async prepareStep() {
       return { argv: ['probe'], cwd: '/workspace', envNames: [], configMounts: [], parser: 'text' };
+    },
+    async parseEvents() {
+      return { finalOutput: '', toolCalls: [], errors: [] };
+    },
+  };
+}
+
+function createVersionedFelanAdapter(): AgentAdapter {
+  return {
+    name: 'felan',
+    getInstallRecipe(input) {
+      const version = input.agent.model ?? 'latest';
+      return Promise.resolve({
+        commands: [`echo installing felan@${version}`],
+        probes: [{ command: ['probe-ok'] }],
+        cacheKey: `felan@${version}`,
+      });
+    },
+    async prepareStep() {
+      return { argv: ['probe-ok'], cwd: '/workspace', envNames: [], configMounts: [], parser: 'text' };
     },
     async parseEvents() {
       return { finalOutput: '', toolCalls: [], errors: [] };

@@ -435,6 +435,40 @@ test('felan install recipe installs the published coding-agent package by defaul
   expect(recipe.cacheKey).toBe('@felan-ai/felan');
 });
 
+test('felan install recipe pins an exact configured package version', async () => {
+  const root = await tempRoot();
+  const recipe = await felanAdapter.getInstallRecipe!({
+    projectRoot: root,
+    agentName: 'felan',
+    agent: { adapter: 'felan', config: { packageVersion: '0.14.2' } },
+    docker: prepareInput(root, { adapter: 'felan' }).docker,
+  });
+
+  expect(recipe.commands).toEqual(['npm install -g @felan-ai/felan@0.14.2']);
+  expect(recipe.cacheKey).toBe('@felan-ai/felan@0.14.2');
+
+  const prerelease = await felanAdapter.getInstallRecipe!({
+    projectRoot: root,
+    agentName: 'felan-prerelease',
+    agent: { adapter: 'felan', config: { packageVersion: '0.15.0-beta.1' } },
+    docker: prepareInput(root, { adapter: 'felan' }).docker,
+  });
+  expect(prerelease.commands).toEqual(['npm install -g @felan-ai/felan@0.15.0-beta.1']);
+});
+
+test('felan install recipe rejects non-exact or unsafe package versions', async () => {
+  const root = await tempRoot();
+  const docker = prepareInput(root, { adapter: 'felan' }).docker;
+  for (const packageVersion of ['latest', '^0.14.2', '0.14.2; echo unsafe', '1.0.0-01', 14]) {
+    await expect(felanAdapter.getInstallRecipe!({
+      projectRoot: root,
+      agentName: 'felan',
+      agent: { adapter: 'felan', config: { packageVersion } },
+      docker,
+    })).rejects.toThrow('config.packageVersion must be an exact semantic version');
+  }
+});
+
 test('pi complete uses pi print mode and current pi credentials', async () => {
   clearAuthEnv();
   const root = await tempRoot();

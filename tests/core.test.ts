@@ -76,6 +76,71 @@ assert: []
   expect(matrix[0].agent.config).toEqual({ a: 1, b: 2 });
 });
 
+test('workspace setup commands load and case commands replace project defaults', async () => {
+  const root = await tempRoot();
+  await mkdir(join(root, 'cases'));
+  await writeFile(join(root, 'harness-evals.yaml'), `
+version: 1
+workspace:
+  setup:
+    - command: node
+      args: [-e, "console.log('project setup')"]
+agents:
+  command:
+    adapter: command
+    command: echo
+tests:
+  - cases/*.yaml
+`);
+  await writeFile(join(root, 'cases', 'case.yaml'), `
+id: workspace-setup
+workspace:
+  setup:
+    - command: ln
+      args: [-s, /opt/deps/node_modules, node_modules]
+      cwd: /workspace
+      timeoutMs: 1234
+prompt: hi
+assert: []
+`);
+
+  const config = await loadHarnessConfig({ cwd: root });
+  const matrix = buildMatrix(config);
+
+  expect(config.workspace.setup).toEqual([{ command: 'node', args: ['-e', "console.log('project setup')"], cwd: undefined, timeoutMs: undefined }]);
+  expect(matrix[0].workspace.setup).toEqual([{
+    command: 'ln',
+    args: ['-s', '/opt/deps/node_modules', 'node_modules'],
+    cwd: '/workspace',
+    timeoutMs: 1234,
+  }]);
+});
+
+test('workspace setup rejects relative container working directories', async () => {
+  const root = await tempRoot();
+  await mkdir(join(root, 'cases'));
+  await writeFile(join(root, 'harness-evals.yaml'), `
+version: 1
+agents:
+  command:
+    adapter: command
+    command: echo
+tests:
+  - cases/*.yaml
+`);
+  await writeFile(join(root, 'cases', 'case.yaml'), `
+id: bad-workspace-setup
+workspace:
+  setup:
+    - command: node -e unsafe
+      cwd: relative/path
+prompt: hi
+assert: []
+`);
+
+  await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow('workspace.setup[0].cwd must be an absolute container path');
+});
+
 test('documented config and test case shapes load', async () => {
   const root = await tempRoot();
   await mkdir(join(root, 'evals', 'tests'), { recursive: true });

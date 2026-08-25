@@ -27,6 +27,7 @@ import type {
   VerifierRewardFormat,
   VisualizationConfig,
   VisualizationFormat,
+  WorkspaceConfig,
 } from './schema.js';
 
 export interface LoadHarnessConfigOptions {
@@ -108,7 +109,7 @@ function readHarnessConfig(value: unknown): HarnessConfigOverride {
     version: 1,
     artifactRoot: readOptionalString(value.artifactRoot, 'artifactRoot'),
     outputRoot: readOptionalString(value.outputRoot, 'outputRoot'),
-    workspace: readOptionalRecord(value.workspace, 'workspace') as Partial<HarnessConfig['workspace']> | undefined,
+    workspace: readWorkspaceConfig(value.workspace, 'workspace'),
     docker: readOptionalRecord(value.docker, 'docker') as Partial<HarnessConfig['docker']> | undefined,
     agents: readAgents(value.agents),
     tests: readTests(value.tests),
@@ -539,10 +540,40 @@ function readNetworkAllowlist(value: unknown, field: string): string[] | undefin
 }
 
 function normalizeLegacyWorkspace(value: unknown, vars: Record<string, unknown> | undefined): Partial<TestCase['workspace']> | undefined {
-  const workspace = readOptionalRecord(value, 'workspace') as Partial<TestCase['workspace']> | undefined;
+  const workspace = readWorkspaceConfig(value, 'workspace');
   const fixture = readOptionalString(vars?.fixture, 'vars.fixture');
   if (!fixture) return workspace;
   return { ...(workspace ?? {}), fixture };
+}
+
+function readWorkspaceConfig(value: unknown, field: string): Partial<WorkspaceConfig> | undefined {
+  const raw = readOptionalRecord(value, field);
+  if (!raw) return undefined;
+  const setup = readWorkspaceSetup(raw.setup, `${field}.setup`);
+  return {
+    ...raw,
+    ...(setup ? { setup } : {}),
+  } as Partial<WorkspaceConfig>;
+}
+
+function readWorkspaceSetup(value: unknown, field: string): WorkspaceConfig['setup'] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
+  return value.map((entry, index) => {
+    const entryField = `${field}[${index}]`;
+    if (!isRecord(entry)) throw new Error(`${entryField} must be an object`);
+    assertKnownKeys(entry, ['command', 'args', 'cwd', 'timeoutMs'], entryField);
+    const command = readOptionalString(entry.command, `${entryField}.command`);
+    if (!command) throw new Error(`${entryField}.command is required`);
+    const cwd = readOptionalString(entry.cwd, `${entryField}.cwd`);
+    if (cwd && !cwd.startsWith('/')) throw new Error(`${entryField}.cwd must be an absolute container path`);
+    return {
+      command,
+      args: readOptionalStringArray(entry.args, `${entryField}.args`) ?? [],
+      cwd,
+      timeoutMs: readOptionalPositiveInteger(entry.timeoutMs, `${entryField}.timeoutMs`),
+    };
+  });
 }
 
 function normalizeTestCase(testCase: TestCase, projectRoot: string, path: string, mocks: MockConfig): TestCase {

@@ -22,16 +22,19 @@ export const FELAN_AUTH_ENV_NAMES = [
 const FELAN_PACKAGE = '@felan-ai/felan';
 const FELAN_CONFIG_DIR = 'felan';
 const FELAN_SECRET_FILES = ['auth.json', 'models.json', 'models-store.json'] as const;
+const EXACT_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 export const felanAdapter: AgentAdapter = {
   name: 'felan',
   authEnvNames: FELAN_AUTH_ENV_NAMES,
-  getInstallRecipe(input) {
-    return Promise.resolve({
-      commands: input.agent.command ? [] : [`npm install -g ${FELAN_PACKAGE}`],
+  async getInstallRecipe(input) {
+    const packageVersion = readPackageVersion(input.agent.config);
+    const packageSpec = packageVersion ? `${FELAN_PACKAGE}@${packageVersion}` : FELAN_PACKAGE;
+    return {
+      commands: input.agent.command ? [] : [`npm install -g ${packageSpec}`],
       probes: [{ command: [input.agent.command ?? 'felan', '--version'] }],
-      cacheKey: FELAN_PACKAGE,
-    });
+      cacheKey: packageSpec,
+    };
   },
   async prepareStep(input: AgentStepPrepareInput): Promise<AgentStepRunPlan> {
     const config = input.agent.config ?? {};
@@ -142,6 +145,15 @@ async function pathExists(path: string): Promise<boolean> {
 
 function readBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
+}
+
+function readPackageVersion(config: Record<string, unknown> | undefined): string | undefined {
+  const value = config?.packageVersion;
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string' || !EXACT_SEMVER.test(value)) {
+    throw new Error('felan config.packageVersion must be an exact semantic version such as 0.14.2');
+  }
+  return value;
 }
 
 function unique(values: Array<string | undefined>): string[] {

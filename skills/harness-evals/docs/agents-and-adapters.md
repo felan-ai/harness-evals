@@ -179,6 +179,25 @@ when a local command override emits plain text instead. The default managed-imag
 recipe installs `@felan-ai/felan` globally; setting `command` skips installation,
 which supports a local/source checkout command.
 
+For reproducible managed images, set `config.packageVersion` to an exact semantic
+version. Tags and ranges are rejected so the install recipe and image cache key
+cannot drift:
+
+```yaml
+agents:
+  felan-pinned:
+    adapter: felan
+    provider: google
+    model: gemini-2.5-pro
+    config:
+      packageVersion: 0.14.2
+```
+
+Profiles selected in one managed-image run must use the same Felan package
+version. Conflicting versions fail before image construction; run those profiles
+separately or provide distinct ready images so a later global install cannot
+silently overwrite an earlier one.
+
 Each step receives an isolated writable `FELAN_AGENT_DIR` at
 `/agent-config/felan`. When `useCurrentConfig` is enabled, the adapter copies
 only `settings.json`, `auth.json`, `models.json`, and `models-store.json` from
@@ -195,6 +214,7 @@ agents:
     thinking: high
     timeoutMs: 600000
     config:
+      packageVersion: 0.14.2
       settings:
         extensionConfig:
           outputStyle:
