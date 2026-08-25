@@ -320,7 +320,7 @@ workspace:
   source: workspace
 docker:
   image: fake-image
-  timeoutMs: 1000
+  timeoutMs: 10000
 agents:
   mock:
     adapter: mock-agent
