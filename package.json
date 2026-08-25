@@ -6,6 +6,10 @@
     "harness-evals": "dist/cli.js"
   },
   "description": "Agent-first coding-agent evaluation harness with Docker isolation, skills onboarding, and result reporting.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/felan-ai/harness-evals.git"
+  },
   "keywords": [
     "agent-evals",
     "coding-agents",
@@ -40,5 +44,9 @@
     "@types/bun": "^1.3.6",
     "@types/node": "^24.10.1",
     "typescript": "^6.0.2"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

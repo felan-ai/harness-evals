@@ -1,0 +1,57 @@
+name: Release package
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: release-package
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+      - name: Select unpublished package version
+        id: release
+        run: node scripts/check-proposed-version.mjs --select-unpublished
+      - if: steps.release.outputs.has_package == 'true'
+        run: bun install --frozen-lockfile
+      - name: Verify package
+        if: steps.release.outputs.has_package == 'true'
+        run: |
+          bun run check
+          bun test
+      - if: steps.release.outputs.has_package == 'true'
+        run: npm install --global npm@11.19.0
+      - name: Pack package
+        if: steps.release.outputs.has_package == 'true'
+        run: |
+          mkdir -p .artifacts
+          npm pack --pack-destination .artifacts
+      - name: Publish package version
+        if: steps.release.outputs.has_package == 'true'
+        run: |
+          set -euo pipefail
+          package_name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          artifact="${package_name#@}"
+          artifact=".artifacts/${artifact/\//-}-${version}.tgz"
+          channel=latest
+          if [[ "$version" == *-* ]]; then
+            channel=next
+          fi
+          npm publish "$artifact" --access public --tag "$channel" --provenance
