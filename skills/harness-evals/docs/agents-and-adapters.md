@@ -11,6 +11,7 @@ Built-in adapters are registered automatically:
 - `claude-code`: run Anthropic Claude Code
 - `codex`: run OpenAI Codex CLI
 - `cursor`: run Cursor Agent
+- `felan`: run the Felan coding agent in headless mode
 
 Minimal examples:
 
@@ -36,6 +37,12 @@ agents:
 
   cursor-default:
     adapter: cursor
+
+  felan-gemini:
+    adapter: felan
+    provider: google
+    model: gemini-2.5-pro
+    thinking: high
 ```
 
 ## Common agent fields
@@ -63,11 +70,12 @@ Useful fields:
 - `env`: extra environment variable names to forward into the container.
 - `envAllowlist`: additional env names to forward for this agent.
 - `timeoutMs`: per-step timeout override.
-- `parser`: output parser. Built-ins default to `text`, except `pi`, which defaults to `pi-jsonl`.
+- `parser`: output parser. Built-ins default to `text`, except `pi` and `felan`, which default to `pi-jsonl`.
 
 Adapter-specific fields used by built-ins:
 
-- `provider`, `providerEnv`, `model`, `modelEnv`: used by `pi`
+- `provider`, `providerEnv`, `model`, `modelEnv`: used by `pi` and `felan`
+- `thinking`: Felan headless thinking level (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`)
 - `apiKeyEnv`: forwarded by built-ins that can authenticate with an API key
 - `profile`: used by `codex`
 - `outputFormat`: used by `claude-code`, `codex`, and `cursor`
@@ -75,7 +83,7 @@ Adapter-specific fields used by built-ins:
 
 ## Token and cost metrics
 
-`claude-code`, `codex`, and `pi` report per-run token usage (and cost where the CLI
+`claude-code`, `codex`, `pi`, and `felan` report per-run token usage (and cost where the CLI
 provides it) into the run's cost report, the HTML/CSV report columns, and `cost.json`
 artifacts. No configuration is needed:
 
@@ -84,6 +92,7 @@ artifacts. No configuration is needed:
 - `codex` defaults to `codex exec --json` and sums token usage from the JSONL events
   (tokens only; no dollar cost under ChatGPT auth).
 - `pi` accumulates usage and cost from its assistant message events.
+- `felan` emits the same Pi-compatible JSONL events and uses the shared parser.
 
 The json defaults apply only when the agent runs the real CLI binary; agents that
 override `command:` keep plain output. Set `outputFormat: text` to opt out (final
@@ -161,6 +170,41 @@ Adapter defaults:
 - `cursor` uses `CURSOR_CONFIG_DIR`.
 
 `useCurrentConfig: false` disables the copy entirely; only forwarded credential env vars are used.
+
+### Felan adapter behavior
+
+The `felan` adapter invokes `felan --mode json` and passes the configured
+provider, model, thinking level, prompt, and timeout. Set `outputFormat: text`
+when a local command override emits plain text instead. The default managed-image
+recipe installs `@felan-ai/felan` globally; setting `command` skips installation,
+which supports a local/source checkout command.
+
+Each step receives an isolated writable `FELAN_AGENT_DIR` at
+`/agent-config/felan`. When `useCurrentConfig` is enabled, the adapter copies
+only `settings.json`, `auth.json`, `models.json`, and `models-store.json` from
+`userConfigDirs[0]` (default `~/.felan`). `config.settings` is shallow-merged over
+the copied settings. Credential/model files are staged with mode `0600`; other
+ambient Felan storage, sessions, and unrelated files are not copied.
+
+```yaml
+agents:
+  felan:
+    adapter: felan
+    provider: openai-codex
+    model: gpt-5.5
+    thinking: high
+    timeoutMs: 600000
+    config:
+      settings:
+        extensionConfig:
+          outputStyle:
+            style: concise
+```
+
+Felan JSON output is Pi-compatible JSONL, so the adapter reports assistant
+output, tool calls/results, errors, token classes, requests, and available cost
+through the shared Pi parser. API-key environment names are forwarded only when
+available and are redacted from run artifacts.
 
 ### Pi config behavior
 

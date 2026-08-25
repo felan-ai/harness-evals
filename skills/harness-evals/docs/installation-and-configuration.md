@@ -97,6 +97,12 @@ agents:
     args:
       - "{{ prompt }}"
 
+  felan:
+    adapter: felan
+    provider: google
+    model: gemini-2.5-pro
+    thinking: high
+
 tests:
   - evals/tests/**/*.yaml
 ```

@@ -8,6 +8,20 @@
 - `--help`, `-h`: print CLI help.
 - Unknown commands or flags fail immediately.
 
+Built-in agent definitions can select Felan directly:
+
+```yaml
+agents:
+  felan:
+    adapter: felan
+    provider: google
+    model: gemini-2.5-pro
+    thinking: high
+```
+
+The adapter invokes Felan's supported `--mode json` headless interface and keeps
+per-run settings and selected credentials under an isolated `FELAN_AGENT_DIR`.
+
 ## Commands
 
 ### `run`

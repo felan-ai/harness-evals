@@ -49,6 +49,7 @@ export interface AgentConfig {
   providerEnv?: string;
   model?: string;
   modelEnv?: string;
+  thinking?: string;
   apiKeyEnv?: string;
   profile?: string;
   outputFormat?: string;

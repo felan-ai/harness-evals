@@ -7,6 +7,7 @@ import { claudeCodeAdapter } from './claude-code.js';
 import { codexAdapter } from './codex.js';
 import { commandAdapter } from './command.js';
 import { cursorAdapter } from './cursor.js';
+import { felanAdapter } from './felan.js';
 import { piAdapter } from './pi.js';
 import type { AgentAdapter } from './types.js';
 
@@ -35,6 +36,7 @@ export const builtInAdapters: AgentAdapter[] = [
   claudeCodeAdapter,
   codexAdapter,
   cursorAdapter,
+  felanAdapter,
 ];
 
 export async function createAdapterRegistry(input: AdapterRegistryInput): Promise<AdapterRegistry> {

@@ -7,6 +7,7 @@ import { prepareCurrentAuth } from '../src/adapters/current-auth.js';
 import { codexAdapter } from '../src/adapters/codex.js';
 import { commandAdapter } from '../src/adapters/command.js';
 import { cursorAdapter } from '../src/adapters/cursor.js';
+import { felanAdapter } from '../src/adapters/felan.js';
 import { piAdapter } from '../src/adapters/pi.js';
 import type { AgentConfig } from '../src/config/schema.js';
 import type { AgentAdapter, AgentStepPrepareInput } from '../src/adapters/types.js';
@@ -30,6 +31,7 @@ const AUTH_ENV_NAMES = [
   'CUSTOM_ADAPTER_TOKEN',
   'PI_CODING_AGENT_DIR',
   'PI_CAPTURE_PATH',
+  'FELAN_AGENT_DIR',
 ];
 
 afterEach(async () => {
@@ -360,6 +362,77 @@ test('pi omits absent implicit PI_EVAL_API_KEY and --api-key without a key value
 
   expect(plan.envNames).not.toContain('PI_EVAL_API_KEY');
   expect(plan.argv).not.toContain('--api-key');
+});
+
+test('felan prepares exact JSON headless args and an isolated agent directory', async () => {
+  clearAuthEnv();
+  const root = await tempRoot();
+  const sourceDir = join(root, 'felan-agent');
+  await mkdir(sourceDir, { recursive: true });
+  await writeFile(join(sourceDir, 'settings.json'), JSON.stringify({ defaultProvider: 'google', theme: 'dark' }));
+  await writeFile(join(sourceDir, 'auth.json'), '{"google":{"token":"secret"}}');
+  await writeFile(join(sourceDir, 'models-store.json'), '{"google":{"models":[]}}');
+  await writeFile(join(sourceDir, 'unrelated.txt'), 'do not copy');
+
+  const input = prepareInput(root, {
+    adapter: 'felan',
+    provider: 'google',
+    model: 'gemini-2.5-pro',
+    thinking: 'high',
+    userConfigDirs: [sourceDir],
+    config: { settings: { theme: 'light', extensionConfig: { test: true } } },
+  });
+  const plan = await felanAdapter.prepareStep(input);
+  const staged = join(input.configDir, 'felan');
+
+  expect(plan.argv).toEqual(['felan', '--mode', 'json', '--provider', 'google', '--model', 'gemini-2.5-pro', '--thinking', 'high', 'prompt']);
+  expect(plan.envValues).toEqual({ FELAN_AGENT_DIR: '/agent-config/felan' });
+  expect(plan.parser).toBe('pi-jsonl');
+  expect(JSON.parse(await readFile(join(staged, 'settings.json'), 'utf8'))).toEqual({
+    defaultProvider: 'google',
+    theme: 'light',
+    extensionConfig: { test: true },
+  });
+  expect(await readFile(join(staged, 'auth.json'), 'utf8')).toContain('google');
+  expect(await pathExists(join(staged, 'unrelated.txt'))).toBe(false);
+  expect((await stat(join(staged, 'auth.json'))).mode & 0o777).toBe(0o600);
+  expect((await stat(join(staged, 'settings.json'))).mode & 0o777).toBe(0o600);
+});
+
+test('felan supports local command overrides and text output', async () => {
+  clearAuthEnv();
+  const root = await tempRoot();
+  const plan = await felanAdapter.prepareStep(prepareInput(root, {
+    adapter: 'felan',
+    command: 'node',
+    outputFormat: 'text',
+    useCurrentConfig: false,
+    config: { useCurrentConfig: false },
+    args: ['-e', 'console.log("ok")'],
+  }));
+
+  expect(plan.argv).toEqual(['node', '--mode', 'text', '-e', 'console.log("ok")', 'prompt']);
+  expect(plan.parser).toBe('text');
+  expect((await felanAdapter.getInstallRecipe!({
+    projectRoot: root,
+    agentName: 'felan',
+    agent: { adapter: 'felan', command: 'node' },
+    docker: prepareInput(root, { adapter: 'felan' }).docker,
+  })).commands).toEqual([]);
+});
+
+test('felan install recipe installs the published coding-agent package by default', async () => {
+  const root = await tempRoot();
+  const recipe = await felanAdapter.getInstallRecipe!({
+    projectRoot: root,
+    agentName: 'felan',
+    agent: { adapter: 'felan' },
+    docker: prepareInput(root, { adapter: 'felan' }).docker,
+  });
+
+  expect(recipe.commands).toEqual(['npm install -g @felan-ai/felan']);
+  expect(recipe.probes).toEqual([{ command: ['felan', '--version'] }]);
+  expect(recipe.cacheKey).toBe('@felan-ai/felan');
 });
 
 test('pi complete uses pi print mode and current pi credentials', async () => {

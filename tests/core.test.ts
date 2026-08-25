@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { loadHarnessConfig } from '../src/config/load.js';
 import { buildDockerArgs } from '../src/docker/args.js';
 import { piAdapter } from '../src/adapters/pi.js';
+import { felanAdapter } from '../src/adapters/felan.js';
+import { parsePiJsonlEvents } from '../src/adapters/pi-jsonl.js';
 import { claudeCodeAdapter } from '../src/adapters/claude-code.js';
 import { codexAdapter } from '../src/adapters/codex.js';
 import { redactFile, redactionsFromValues, redactString } from '../src/redaction.js';
@@ -1022,6 +1024,29 @@ test('pi adapter parses JSONL events into tool calls and output', async () => {
 
   expect(summary.finalOutput).toBe('OK');
   expect(summary.toolCalls).toEqual([{ name: 'todo_write', args: { content: 'Run smoke eval' }, result: { ok: true }, isError: false }]);
+});
+
+test('felan uses the shared Pi-compatible JSONL parser', async () => {
+  const stdout = [
+    JSON.stringify({ type: 'tool_execution_start', toolCallId: '1', toolName: 'write', args: { path: 'fixture.txt' } }),
+    JSON.stringify({ type: 'tool_execution_end', toolCallId: '1', toolName: 'write', result: 'ok', isError: false }),
+    JSON.stringify({ type: 'message_end', message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'updated' }],
+      provider: 'google',
+      model: 'gemini-2.5-pro',
+      usage: { input: 10, output: 4, cacheRead: 2, cacheWrite: 0, totalTokens: 16, cost: { total: 0.001 } },
+    } }),
+  ].join('\n');
+
+  const expected = await parsePiJsonlEvents({ stdout, stdoutPath: undefined });
+  const actual = await felanAdapter.parseEvents({ stdout, stderr: '', plan: {
+    argv: ['felan', '--mode', 'json'], cwd: '/workspace', envNames: [], configMounts: [], parser: 'pi-jsonl',
+  } });
+
+  expect(actual).toEqual(expected);
+  expect(actual.finalOutput).toBe('updated');
+  expect(actual.cost?.totalCost).toBeCloseTo(0.001);
 });
 
 test('pi adapter accumulates usage and cost from assistant message_end events', async () => {

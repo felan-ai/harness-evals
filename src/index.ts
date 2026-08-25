@@ -37,6 +37,7 @@ export {
 } from './adapters/types.js';
 export { commandAdapter } from './adapters/command.js';
 export { piAdapter } from './adapters/pi.js';
+export { felanAdapter } from './adapters/felan.js';
 export { claudeCodeAdapter } from './adapters/claude-code.js';
 export { codexAdapter } from './adapters/codex.js';
 export { cursorAdapter } from './adapters/cursor.js';

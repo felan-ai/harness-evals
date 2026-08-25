@@ -185,6 +185,7 @@ function readAgentFields(raw: Record<string, unknown>, field: string): Partial<A
     providerEnv: readOptionalString(raw.providerEnv, `${field}.providerEnv`),
     model: readOptionalString(raw.model, `${field}.model`),
     modelEnv: readOptionalString(raw.modelEnv, `${field}.modelEnv`),
+    thinking: readOptionalString(raw.thinking, `${field}.thinking`),
     apiKeyEnv: readOptionalString(raw.apiKeyEnv, `${field}.apiKeyEnv`),
     profile: readOptionalString(raw.profile, `${field}.profile`),
     outputFormat: readOptionalString(raw.outputFormat, `${field}.outputFormat`),

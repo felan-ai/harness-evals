@@ -10,7 +10,12 @@ This LLD defines the adapter registry and adapter contract that enforce the HLD 
 
 ## 1. Domain Overview
 
-The adapter registry resolves every adapter name referenced by an agent before the test-case matrix runs. Built-in adapters are available by default. Project-defined adapters are declared in `harness-evals.yaml`, loaded dynamically, validated, and then treated the same as built-ins by the test-case runner and image resolver.
+The adapter registry resolves every adapter name referenced by an agent before the test-case matrix runs. Built-in adapters (`command`, `pi`, `claude-code`, `codex`, `cursor`, and `felan`) are available by default. Project-defined adapters are declared in `harness-evals.yaml`, loaded dynamically, validated, and then treated the same as built-ins by the test-case runner and image resolver.
+
+The Felan adapter invokes Felan's headless JSONL mode and reuses the shared
+Pi-compatible event parser. Its per-step `FELAN_AGENT_DIR` is staged under the
+run config directory; only generated settings and selected auth/model files are
+copied from the host, never the complete ambient Felan storage tree.
 
 Adapters own provider-specific behavior. The runner does not know how a CLI accepts prompts, resumes across steps, emits events, reports usage, installs itself, locates config files, or represents MCP server config. The adapter contract normalizes those details into run plans, event summaries, continuation metadata, MCP mock application, install recipes, probes, and cost usage records.
 
