@@ -11,11 +11,31 @@ Built-ins:
 - `exitCode`: passes when the step exit code matches `equals` (defaults to `0`).
 - `contains`: passes when the final step output contains `value`.
 - `notContains`: passes when the final step output does not contain `value`.
-- `toolCalled`: checks tool-call events by `name`, with optional `min`, `max`, and `argsContain`.
+- `toolCalled`: checks tool-call events by `name`, with optional `min`, `max`, `argsContain`, and `isError`.
 - `mockCalled`: checks recorded mock calls by `name`, with optional `surface`, `matched`, `min`, `max`, and `argsContain`.
 - `noToolErrors`: fails if any tool call event was marked as an error.
 - `workspaceDiff`: checks file changes using `changedFiles`, `addedFiles`, `deletedFiles`, `minChanged`, and `maxChanged`.
 - `settingsDrivenSetup`: checks that settings-based setup was recorded and that the agent was not launched with `-e` or `--no-extensions`.
+
+Assertions may be scoped to one configured agent:
+
+```yaml
+assert:
+  - id: entered-prewalk
+    type: toolCalled
+    name: enter_prewalk
+    isError: false
+    when:
+      agent: felan-all
+```
+
+The assertion is evaluated only for the named agent. For other agents it is
+omitted from the assertion results, gates, and score denominators. This also
+means conditional `llmJudge` assertions are not invoked for non-matching
+agents. The condition must reference an agent declared in the project config.
+
+For `toolCalled`, `isError: false` matches calls that were not recorded as
+errors; `isError: true` matches only failed calls.
 
 All assertions are `required: true` by default.
 

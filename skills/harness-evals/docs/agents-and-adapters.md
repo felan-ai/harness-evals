@@ -226,6 +226,45 @@ output, tool calls/results, errors, token classes, requests, and available cost
 through the shared Pi parser. API-key environment names are forwarded only when
 available and are redacted from run artifacts.
 
+#### Felan subscription OAuth
+
+Felan agents can use the OAuth subscription login flows provided by Pi. Configure
+`auth.type: oauth` alongside the normal provider/model settings:
+
+```yaml
+agents:
+  felan-codex-subscription:
+    adapter: felan
+    provider: openai-codex
+    model: gpt-5.3-codex
+    thinking: high
+    auth:
+      type: oauth
+      # Optional; defaults to `default` so multiple accounts can coexist.
+      profile: personal
+      # Optional; defaults to true. Set false for remote/headless terminals.
+      openBrowser: true
+```
+
+Supported provider IDs are `openai-codex` (ChatGPT Plus/Pro), `anthropic`
+(Claude Pro/Max), and `github-copilot`. On the first run for a profile,
+harness-evals starts the provider's Pi OAuth flow in an interactive terminal,
+prints the authorization URL, and opens it in the system browser by default.
+Complete the login in that browser and follow any displayed prompt.
+
+Credentials are stored locally at
+`.harness-evals/auth/felan/<profile>/auth.json`, excluded from the copied
+workspace, and never written to YAML or run metadata. The file is mounted
+writable at Felan's `FELAN_AGENT_DIR/auth.json` inside each container. Existing
+credentials are reused; expired credentials are refreshed before the container
+starts and refreshed tokens are persisted. The persistent auth file is not
+deleted by `--cleanup`.
+
+The first login requires a TTY because OAuth may need interactive input. For a
+remote or non-interactive run, authenticate once in a terminal and set
+`openBrowser: false` if the authorization URL should only be printed. Do not
+commit `.harness-evals/auth` or copy its token values into project files.
+
 ### Pi config behavior
 
 The `pi` adapter writes per-run settings files instead of mounting a config directory.

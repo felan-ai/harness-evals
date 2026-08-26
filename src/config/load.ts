@@ -7,8 +7,10 @@ import { resolveAgentExtends, withHarnessDefaults, type HarnessConfigOverride } 
 import { findHarnessConfig, resolveOptionalProjectPath, resolveProjectPath } from './paths.js';
 import type {
   AdapterDeclaration,
+  AgentAuthConfig,
   AgentConfig,
   AgentsSelection,
+  AssertionCondition,
   AssertionConfig,
   HarnessConfig,
   JudgeAssertionDefinition,
@@ -44,17 +46,22 @@ const JUDGE_INPUT_REFS = new Set(['finalOutput', 'stdout', 'stderr', 'events', '
 const VERIFIER_REWARD_FORMATS = new Set<VerifierRewardFormat>(['auto', 'json', 'text']);
 const NETWORK_POLICY_MODES = new Set<NetworkPolicyConfig['mode']>(['default', 'none', 'allowlist']);
 
+const BASE_ASSERTION_KEYS = ['id', 'type', 'required', 'when'] as const;
 const ASSERTION_KEYS: Record<string, readonly string[]> = {
-  exitCode: ['id', 'type', 'required', 'equals'],
-  contains: ['id', 'type', 'required', 'value'],
-  notContains: ['id', 'type', 'required', 'value'],
-  toolCalled: ['id', 'type', 'required', 'name', 'min', 'max', 'argsContain'],
-  mockCalled: ['id', 'type', 'required', 'name', 'surface', 'min', 'max', 'argsContain', 'matched'],
-  noToolErrors: ['id', 'type', 'required'],
-  workspaceDiff: ['id', 'type', 'required', 'changedFiles', 'addedFiles', 'deletedFiles', 'minChanged', 'maxChanged'],
-  settingsDrivenSetup: ['id', 'type', 'required'],
-  llmJudge: ['id', 'type', 'required', 'threshold', 'judge'],
+  exitCode: assertionKeys('equals'),
+  contains: assertionKeys('value'),
+  notContains: assertionKeys('value'),
+  toolCalled: assertionKeys('name', 'min', 'max', 'argsContain', 'isError'),
+  mockCalled: assertionKeys('name', 'surface', 'min', 'max', 'argsContain', 'matched'),
+  noToolErrors: assertionKeys(),
+  workspaceDiff: assertionKeys('changedFiles', 'addedFiles', 'deletedFiles', 'minChanged', 'maxChanged'),
+  settingsDrivenSetup: assertionKeys(),
+  llmJudge: assertionKeys('threshold', 'judge'),
 };
+
+function assertionKeys(...keys: string[]): readonly string[] {
+  return [...BASE_ASSERTION_KEYS, ...keys];
+}
 
 export async function loadHarnessConfig(options: LoadHarnessConfigOptions = {}): Promise<LoadedHarnessConfig> {
   const cwd = resolve(options.cwd ?? process.cwd());
@@ -65,6 +72,7 @@ export async function loadHarnessConfig(options: LoadHarnessConfigOptions = {}):
   const config = normalizeHarnessConfig(withHarnessDefaults(readHarnessConfig(interpolated)), projectRoot);
   const testCases = await loadTestCases(config.tests, projectRoot, config.mocks);
   validateExplicitJudgeConfig(testCases, config.judge);
+  validateAssertionConditions(testCases, config.agents);
 
   return {
     ...config,
@@ -188,6 +196,7 @@ function readAgentFields(raw: Record<string, unknown>, field: string): Partial<A
     modelEnv: readOptionalString(raw.modelEnv, `${field}.modelEnv`),
     thinking: readOptionalString(raw.thinking, `${field}.thinking`),
     apiKeyEnv: readOptionalString(raw.apiKeyEnv, `${field}.apiKeyEnv`),
+    auth: readAgentAuthConfig(raw.auth, `${field}.auth`),
     profile: readOptionalString(raw.profile, `${field}.profile`),
     outputFormat: readOptionalString(raw.outputFormat, `${field}.outputFormat`),
     useCurrentConfig: readOptionalBoolean(raw.useCurrentConfig, `${field}.useCurrentConfig`),
@@ -196,6 +205,30 @@ function readAgentFields(raw: Record<string, unknown>, field: string): Partial<A
     config: readOptionalRecord(raw.config, `${field}.config`),
     parser: readOptionalString(raw.parser, `${field}.parser`),
   };
+}
+
+function readAgentAuthConfig(value: unknown, field: string): AgentAuthConfig | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value)) throw new Error(`${field} must be an object`);
+  assertKnownKeys(value, ['type', 'profile', 'openBrowser'], field);
+  const type = readOptionalString(value.type, `${field}.type`);
+  if (type !== 'oauth') throw new Error(`${field}.type must be oauth`);
+  const profile = readOptionalString(value.profile, `${field}.profile`);
+  if (profile && !isSafeAuthProfile(profile)) {
+    throw new Error(`${field}.profile must be a safe name using letters, numbers, dots, underscores, or hyphens`);
+  }
+  return {
+    type,
+    profile,
+    openBrowser: readOptionalBoolean(value.openBrowser, `${field}.openBrowser`),
+  };
+}
+
+function isSafeAuthProfile(value: string): boolean {
+  return value !== '.'
+    && value !== '..'
+    && value.length <= 64
+    && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
 }
 
 function readTests(value: unknown): string[] | undefined {
@@ -615,14 +648,28 @@ function readAssertions(value: unknown, field: string): AssertionConfig[] {
     assertKnownKeys(entry, allowedKeys, itemField);
     const id = readOptionalString(entry.id, `${itemField}.id`);
     const required = readOptionalBoolean(entry.required, `${itemField}.required`) ?? true;
+    const when = readAssertionCondition(entry.when, `${itemField}.when`);
+    const normalized: AssertionConfig = { ...entry, id, type, required, ...(when ? { when } : {}) };
+    if (type === 'toolCalled' && entry.isError !== undefined) {
+      (normalized as Record<string, unknown>).isError = readOptionalBoolean(entry.isError, `${itemField}.isError`);
+    }
     if (type === 'llmJudge') {
       const threshold = readOptionalNumber(entry.threshold, `${itemField}.threshold`);
       if (threshold === undefined) throw new Error(`${itemField}.threshold is required`);
       if (threshold < 0 || threshold > 1) throw new Error(`${itemField}.threshold must be between 0 and 1`);
-      return { ...entry, id, type, required, threshold, judge: readJudgeAssertion(entry.judge, `${itemField}.judge`) };
+      return { ...normalized, threshold, judge: readJudgeAssertion(entry.judge, `${itemField}.judge`) };
     }
-    return { ...entry, id, type, required };
+    return normalized;
   });
+}
+
+function readAssertionCondition(value: unknown, field: string): AssertionCondition | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value)) throw new Error(`${field} must be an object`);
+  assertKnownKeys(value, ['agent'], field);
+  const agent = readOptionalString(value.agent, `${field}.agent`);
+  if (!agent) throw new Error(`${field}.agent is required`);
+  return { agent };
 }
 
 function readJudgeAssertion(value: unknown, field: string): JudgeAssertionDefinition {
@@ -663,6 +710,20 @@ function validateExplicitJudgeConfig(testCases: TestCase[], defaults: JudgeDefau
         ].filter((value): value is string => Boolean(value));
         if (missing.length > 0) {
           throw new Error(`llmJudge assertion ${judgeAssertion.id ?? judgeAssertion.type} in ${testCase.id}.${step.id} requires judge.${missing.join(', ')} when explicit judge config is used`);
+        }
+      }
+    }
+  }
+}
+
+function validateAssertionConditions(testCases: TestCase[], agents: Record<string, AgentConfig>): void {
+  const configuredAgents = new Set(Object.keys(agents));
+  for (const testCase of testCases) {
+    for (const step of testCase.steps) {
+      for (const assertion of step.assert) {
+        const agent = assertion.when?.agent;
+        if (agent && !configuredAgents.has(agent)) {
+          throw new Error(`Assertion ${assertion.id ?? assertion.type} in ${testCase.id}.${step.id} references unknown agent: ${agent}`);
         }
       }
     }

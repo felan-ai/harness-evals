@@ -255,6 +255,30 @@ assert:
 
 `name` matches the tool/event name. `argsContain` checks the serialized call args.
 
+Assertions can be conditional on a configured agent. This is useful when a
+comparison intentionally expects different tool behavior from different arms:
+
+```yaml
+assert:
+  - id: prewalk-entry
+    type: toolCalled
+    name: enter_prewalk
+    isError: false
+    when:
+      agent: felan-all
+  - id: prewalk-disabled
+    type: toolCalled
+    name: enter_prewalk
+    min: 0
+    max: 0
+    when:
+      agent: felan-no-prewalk
+```
+
+Non-matching assertions are omitted rather than treated as passes or failures.
+Their results are excluded from assertion pass-rate scoring, and conditional
+judges are not called.
+
 ### Mock usage
 
 ```yaml

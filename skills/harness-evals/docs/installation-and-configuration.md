@@ -304,6 +304,11 @@ Safer patterns:
 - keep credentials in your shell, CI credential store, or local agent config
 - use `docker.envAllowlist` and agent `env` / `envAllowlist` to forward only the variables the run needs
 
+For Felan subscription access, use the built-in OAuth configuration instead of
+putting access or refresh tokens in this file. See [Agents and adapters](./agents-and-adapters.md#felan-subscription-oauth)
+for the supported provider IDs and the local `.harness-evals/auth` storage
+behavior.
+
 Default Docker allowlist includes common LLM API key names such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GEMINI_API_KEY`.
 
 ## Common commands

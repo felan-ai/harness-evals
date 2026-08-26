@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { expandTrustedPath } from '../config/paths.js';
 import { parsePiJsonlEvents } from './pi-jsonl.js';
+import { prepareFelanOAuth } from './felan-oauth.js';
 import type { AgentAdapter, AgentStepPrepareInput, AgentStepRunPlan } from './types.js';
 
 export const FELAN_AUTH_ENV_NAMES = [
@@ -43,8 +44,14 @@ export const felanAdapter: AgentAdapter = {
 
     const useCurrentConfig = readBoolean(config.useCurrentConfig) ?? input.agent.useCurrentConfig ?? true;
     const sourceDir = currentFelanDir(input);
-    const copiedFiles = useCurrentConfig ? await copyCurrentFelanFiles(sourceDir, configDir) : [];
+    const oauth = input.agent.auth?.type === 'oauth'
+      ? await prepareFelanOAuth({ projectRoot: input.projectRoot, provider: input.agent.provider!, auth: input.agent.auth })
+      : undefined;
+    const copiedFiles = useCurrentConfig ? await copyCurrentFelanFiles(sourceDir, configDir, oauth !== undefined) : [];
     const settings = await prepareSettings(sourceDir, configDir, useCurrentConfig, config.settings);
+    const configMounts = oauth
+      ? await prepareOAuthMount(configDir, oauth.authPath, `${input.docker.configRoot}/${FELAN_CONFIG_DIR}/auth.json`)
+      : [];
 
     const command = input.agent.command ?? 'felan';
     const mode = input.agent.outputFormat === 'text' ? 'text' : 'json';
@@ -64,7 +71,7 @@ export const felanAdapter: AgentAdapter = {
         ...(input.agent.envAllowlist ?? []),
       ]),
       envValues: { FELAN_AGENT_DIR: `${input.docker.configRoot}/${FELAN_CONFIG_DIR}` },
-      configMounts: [],
+      configMounts,
       parser: input.agent.parser ?? (mode === 'json' ? 'pi-jsonl' : 'text'),
       timeoutMs: input.agent.timeoutMs,
       cleanupPaths: [configDir],
@@ -74,6 +81,7 @@ export const felanAdapter: AgentAdapter = {
           sourceDir,
           copiedFiles,
           settingsGenerated: settings !== undefined,
+          ...(oauth ? { oauth: { provider: oauth.provider, profile: oauth.profile, refreshed: oauth.refreshed } } : {}),
         },
       },
     };
@@ -96,9 +104,10 @@ function currentFelanDir(input: AgentStepPrepareInput): string {
   return expandTrustedPath(input.agent.userConfigDirs?.[0] ?? process.env.FELAN_AGENT_DIR ?? join(homedir(), '.felan'));
 }
 
-async function copyCurrentFelanFiles(sourceDir: string, targetDir: string): Promise<string[]> {
+async function copyCurrentFelanFiles(sourceDir: string, targetDir: string, skipAuth: boolean): Promise<string[]> {
   const copied: string[] = [];
   for (const name of FELAN_SECRET_FILES) {
+    if (skipAuth && name === 'auth.json') continue;
     const source = join(sourceDir, name);
     if (!(await pathExists(source))) continue;
     const target = join(targetDir, name);
@@ -107,6 +116,13 @@ async function copyCurrentFelanFiles(sourceDir: string, targetDir: string): Prom
     copied.push(name);
   }
   return copied;
+}
+
+async function prepareOAuthMount(configDir: string, sourcePath: string, targetPath: string): Promise<[{ source: string; target: string; readonly: boolean }]> {
+  const placeholder = join(configDir, 'auth.json');
+  if (!(await pathExists(placeholder))) await writeFile(placeholder, '{}\n', { mode: 0o600 });
+  await chmod(placeholder, 0o600);
+  return [{ source: sourcePath, target: targetPath, readonly: false }];
 }
 
 async function prepareSettings(

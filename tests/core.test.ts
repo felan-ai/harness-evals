@@ -500,6 +500,10 @@ test('unknown config extension keys and assertion types fail during loading', as
       message: 'Unknown assertion type',
     },
     {
+      caseYaml: `id: bad-assert-agent\nprompt: hi\nassert:\n  - type: contains\n    value: hi\n    when:\n      agent: missing`,
+      message: 'references unknown agent',
+    },
+    {
       caseYaml: `id: bad-judge\nprompt: hi\nassert:\n  - type: llmJudge\n    judge:\n      provider: test\n      model: judge\n      apiKeyEnv: TEST_KEY\n      rubric: Score it.\n      inputs: [finalOutput]`,
       message: 'threshold is required',
     },
@@ -1307,6 +1311,37 @@ test('built-in assertions evaluate tool calls and workspace diff', async () => {
   });
 
   expect(results.every((result) => result.pass)).toBe(true);
+});
+
+test('agent-conditional assertions only evaluate for their selected agent', async () => {
+  const judgeCalls: string[] = [];
+  const configs = [
+    { id: 'all-entry', type: 'toolCalled', name: 'enter_prewalk', when: { agent: 'felan-all' }, isError: false },
+    { id: 'no-entry', type: 'toolCalled', name: 'enter_prewalk', min: 0, max: 0, when: { agent: 'felan-no-prewalk' } },
+    { id: 'judge', type: 'llmJudge', threshold: 0.5, when: { agent: 'felan-no-prewalk' }, judge: { rubric: 'judge', inputs: ['finalOutput'] } },
+  ] as const;
+  const context = {
+    agentName: 'felan-all',
+    output: 'OK',
+    exitCode: 0,
+    events: { finalOutput: 'OK', toolCalls: [{ name: 'enter_prewalk', isError: false }], errors: [] },
+    workspace: { added: [], changed: [], deleted: [] },
+    metadata: {},
+  };
+
+  const allResults = await runAssertions([...configs], context);
+  expect(allResults.map((result) => result.id)).toEqual(['all-entry']);
+  expect(allResults[0]).toMatchObject({ pass: true, metadata: { isError: false, count: 1 } });
+
+  const noResults = await runAssertions([...configs], { ...context, agentName: 'felan-no-prewalk', events: { ...context.events, toolCalls: [] } }, {
+    judgeRunner: async () => {
+      judgeCalls.push('called');
+      return { score: 1, reason: 'ok' };
+    },
+  });
+  expect(noResults.map((result) => result.id)).toEqual(['no-entry', 'judge']);
+  expect(noResults[0]).toMatchObject({ pass: true, metadata: { isError: undefined, count: 0 } });
+  expect(judgeCalls).toEqual(['called']);
 });
 
 function visualizationConfig(overrides: Partial<ReturnType<typeof visualizationConfigBase>> = {}) {

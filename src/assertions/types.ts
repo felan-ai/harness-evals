@@ -5,6 +5,7 @@ import type { Redaction } from '../redaction.js';
 import type { WorkspaceDiff } from '../workspace/diff.js';
 
 export interface AssertionContext {
+  agentName?: string;
   output: string;
   stdout?: string;
   stderr?: string;

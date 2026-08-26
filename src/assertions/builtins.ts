@@ -21,6 +21,7 @@ export async function runAssertions(configs: AssertionConfig[], context: Asserti
   const completed: AssertionResult[] = [];
 
   for (const config of nonJudgeConfigs) {
+    if (!appliesToAgent(config, context.agentName)) continue;
     const runner = builtInAssertions[config.type];
     const result = runner
       ? await runner(config, context)
@@ -30,12 +31,15 @@ export async function runAssertions(configs: AssertionConfig[], context: Asserti
   }
 
   for (const config of judgeConfigs) {
+    if (!appliesToAgent(config, context.agentName)) continue;
     const result = await llmJudge(config, { ...context, assertions: [...completed] }, options);
     resultsByConfig.set(config, result);
     completed.push(result);
   }
 
-  return configs.map((config) => resultsByConfig.get(config) ?? assertionResult(config, false, `Assertion was not evaluated: ${config.type}`));
+  return configs
+    .filter((config) => appliesToAgent(config, context.agentName))
+    .map((config) => resultsByConfig.get(config) ?? assertionResult(config, false, `Assertion was not evaluated: ${config.type}`));
 }
 
 function exitCode(config: AssertionConfig, context: AssertionContext): AssertionResult {
@@ -77,8 +81,9 @@ function toolCalled(config: AssertionConfig, context: AssertionContext): Asserti
 
   const min = readNumber(config.min, 1);
   const max = typeof config.max === 'number' ? config.max : undefined;
-  const matching = context.events.toolCalls.filter((call) => matchesToolName(call.name, name));
-  const metadata = { name, min, max, count: matching.length };
+  const expectedError = typeof config.isError === 'boolean' ? config.isError : undefined;
+  const matching = context.events.toolCalls.filter((call) => matchesToolName(call.name, name) && (expectedError === undefined || (call.isError ?? false) === expectedError));
+  const metadata = { name, min, max, isError: expectedError, count: matching.length };
 
   if (matching.length < min) {
     return assertionResult(config, false, `Expected ${name} at least ${min} time(s), got ${matching.length}`, metadata);
@@ -370,6 +375,10 @@ function assertionResult(config: AssertionConfig, pass: boolean, reason: string,
     reason,
     metadata,
   };
+}
+
+function appliesToAgent(config: AssertionConfig, agentName: string | undefined): boolean {
+  return !config.when || config.when.agent === agentName;
 }
 
 function readRequired(config: AssertionConfig): boolean {

@@ -402,14 +402,15 @@ test('felan prepares exact JSON headless args and an isolated agent directory', 
 test('felan supports local command overrides and text output', async () => {
   clearAuthEnv();
   const root = await tempRoot();
-  const plan = await felanAdapter.prepareStep(prepareInput(root, {
+  const input = prepareInput(root, {
     adapter: 'felan',
     command: 'node',
     outputFormat: 'text',
     useCurrentConfig: false,
     config: { useCurrentConfig: false },
     args: ['-e', 'console.log("ok")'],
-  }));
+  });
+  const plan = await felanAdapter.prepareStep(input);
 
   expect(plan.argv).toEqual(['node', '--mode', 'text', '-e', 'console.log("ok")', 'prompt']);
   expect(plan.parser).toBe('text');
@@ -419,6 +420,36 @@ test('felan supports local command overrides and text output', async () => {
     agent: { adapter: 'felan', command: 'node' },
     docker: prepareInput(root, { adapter: 'felan' }).docker,
   })).commands).toEqual([]);
+});
+
+test('felan OAuth uses project-persistent auth and does not copy credentials into run config', async () => {
+  clearAuthEnv();
+  const root = await tempRoot();
+  const authRoot = join(root, '.harness-evals', 'auth', 'felan', 'default');
+  await mkdir(authRoot, { recursive: true });
+  await writeFile(join(authRoot, 'auth.json'), JSON.stringify({ 'openai-codex': {
+    type: 'oauth', access: 'access-token', refresh: 'refresh-token', expires: Date.now() + 3_600_000,
+  } }));
+  const sourceDir = join(root, 'felan-agent');
+  await mkdir(sourceDir, { recursive: true });
+  await writeFile(join(sourceDir, 'auth.json'), '{"openai-codex":{"access":"wrong-source"}}');
+
+  const input = prepareInput(root, {
+    adapter: 'felan',
+    provider: 'openai-codex',
+    model: 'gpt-5.3-codex',
+    userConfigDirs: [sourceDir],
+    auth: { type: 'oauth' },
+  });
+  const plan = await felanAdapter.prepareStep(input);
+
+  expect(plan.configMounts).toEqual([{
+    source: join(authRoot, 'auth.json'),
+    target: '/agent-config/felan/auth.json',
+    readonly: false,
+  }]);
+  expect(await readFile(join(input.configDir, 'felan', 'auth.json'), 'utf8')).toBe('{}\n');
+  expect(plan.metadata).toMatchObject({ felan: { oauth: { provider: 'openai-codex', profile: 'default', refreshed: false } } });
 });
 
 test('felan install recipe installs the published coding-agent package by default', async () => {

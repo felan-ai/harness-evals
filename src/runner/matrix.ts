@@ -14,6 +14,7 @@ export function buildMatrix(config: LoadedHarnessConfig, cli: CliOverrides = {})
       if (!baseAgent) throw new Error(`Unknown agent selected by ${testCase.id}: ${agentName}`);
 
       const agent = applyMergeOrder(baseAgent, testCase, agentName, cli);
+      validateAgentAuth(agent, agentName);
       const workspace = mergeWorkspaceConfig(config.workspace, testCase.workspace);
       const dockerOverride = {
         ...(testCase.image ? { baseImage: testCase.image } : {}),
@@ -27,6 +28,16 @@ export function buildMatrix(config: LoadedHarnessConfig, cli: CliOverrides = {})
   }
 
   return entries;
+}
+
+function validateAgentAuth(agent: AgentConfig, agentName: string): void {
+  if (!agent.auth) return;
+  if (agent.adapter !== 'felan') {
+    throw new Error(`Agent ${agentName} uses OAuth auth, but only the felan adapter supports it`);
+  }
+  if (!agent.provider) {
+    throw new Error(`Agent ${agentName} uses OAuth auth and requires provider`);
+  }
 }
 
 function filterTests(testCases: TestCase[], cli: CliOverrides): TestCase[] {

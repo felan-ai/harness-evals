@@ -114,6 +114,9 @@ Built-in assertion types include:
 - `settingsDrivenSetup`
 - `llmJudge`
 
+Assertions may include `when.agent` to apply only to one configured agent. A
+non-matching assertion is omitted from evaluation and scoring.
+
 Assertions are attached to steps. Required assertions default to `true` unless you set `required: false`.
 
 ### Verifier

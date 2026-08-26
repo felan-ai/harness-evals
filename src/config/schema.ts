@@ -45,6 +45,12 @@ export interface NetworkPolicyConfig {
   allow?: string[];
 }
 
+export interface AgentAuthConfig {
+  type: 'oauth';
+  profile?: string;
+  openBrowser?: boolean;
+}
+
 export interface AgentConfig {
   adapter: string;
   extends?: string;
@@ -61,6 +67,7 @@ export interface AgentConfig {
   modelEnv?: string;
   thinking?: string;
   apiKeyEnv?: string;
+  auth?: AgentAuthConfig;
   profile?: string;
   outputFormat?: string;
   useCurrentConfig?: boolean;
@@ -165,10 +172,15 @@ export interface JudgeAssertionDefinition extends Partial<JudgeDefaults> {
   inputs: JudgeInputRef[];
 }
 
+export interface AssertionCondition {
+  agent: string;
+}
+
 export interface BaseAssertionConfig {
   id?: string;
   type: string;
   required?: boolean;
+  when?: AssertionCondition;
   [key: string]: unknown;
 }
 

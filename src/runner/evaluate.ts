@@ -510,6 +510,7 @@ async function executeScenarioStep(input: ExecuteScenarioStepInput): Promise<Exe
       mockCalls,
     });
     const assertions = await runAssertions(input.step.assert, {
+      agentName: input.entry.agentName,
       output,
       stdout,
       stderr,
