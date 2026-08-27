@@ -15,7 +15,7 @@ The design makes adapter registration, test glob selection, mock defaults, outpu
 ### Key invariants
 
 1. **Agent-first setup:** The default onboarding path is a distributable `harness-evals` skill installed into the user's coding agent with the Skills CLI.
-2. **Workspace isolation:** The runner mounts only the copied workspace read-write; the source project is never mutated by an eval run.
+2. **Workspace isolation:** The runner mounts only the copied workspace read-write; the source project is never mutated by an eval run. Git sources are fetched at an exact SHA into temporary host storage, verified detached, and copied into the run workspace with remotes removed.
 3. **Explicit scenario lifecycle:** Test-case steps, validation gates, stop conditions, and adapter continuation metadata are represented in test files, config, and artifacts.
 4. **Adapter boundary:** Agent-specific command construction, multi-step continuation, config preparation, installation recipe, event parsing, usage, and cost reporting live behind named adapters.
 5. **Config-declared extensibility:** `harness-evals.yaml` is the source of truth for named agents, project-defined adapter registrations, output providers, visualization settings, mock defaults, and test glob selection overrides.
@@ -40,6 +40,7 @@ Skills CLI installs harness-evals skill
   -> image resolver
        |-- ready image supplied? use it
        `-- otherwise build/reuse cached local image from selected adapter install recipes
+  -> host workspace acquisition (local source, fixture, exact Git SHA, or image seed)
   -> test-case runner
        -> stage mocks and config
        -> step prompt
@@ -86,7 +87,7 @@ The adapter registry resolves every `agents.<name>.adapter` before matrix execut
 
 The CLI loads `harness-evals.yaml`, resolves built-in and project-defined adapters, loads test cases from configured `tests` references, expands the test-case/agent matrix, resolves test-case mock declarations, and resolves a runtime image for the selected agents. When `tests` is omitted, the loader uses `evals/tests/**/*.yaml` by default. If a ready image is explicitly supplied, the harness uses it directly and validates required commands during run preparation. Otherwise, selected adapters provide install recipes and probes; the harness computes a cache key from the base image plus install recipes, builds a local image when the key is missing or incomplete, and reuses it for compatible later runs.
 
-For each test-case/agent entry, the runner creates an output context, copies the source workspace or fixture once for the run, snapshots it, and executes each step in order. Before each step, the mock resolver stages CLI wrappers and MCP wrapper plans for any test-case or step mocks, and adapters apply MCP wrappers to their agent-specific config. The adapter prepares each step and receives any prior continuation metadata, Docker executes against the copied workspace with allowlisted env and config mounts, the adapter parses events and reports usage/cost, the harness collects mock call logs, assertions evaluate the step, and the validation gate decides whether to continue. After the final step or failure gate, the runner snapshots and diffs the workspace, aggregates assertions, scores, and costs, emits output records to the configured output providers, renders configured result visualizations, and removes cleanup-only secret copies.
+For each test-case/agent entry, the runner creates an output context, seeds one run workspace from a local source, fixture, exact Git commit, or image path, snapshots it, and executes each step in order. Before each step, the mock resolver stages CLI wrappers and MCP wrapper plans for any test-case or step mocks, and adapters apply MCP wrappers to their agent-specific config. The adapter prepares each step and receives any prior continuation metadata, Docker executes against the copied workspace with allowlisted env and config mounts, the adapter parses events and reports usage/cost, the harness collects mock call logs, assertions evaluate the step, and the validation gate decides whether to continue. After the final step or failure gate, the runner snapshots and diffs the workspace, aggregates assertions, scores, and costs, emits output records to the configured output providers, renders configured result visualizations, and removes cleanup-only secret copies.
 
 ## 5. Execution Flows
 
@@ -223,6 +224,7 @@ workspace-diff.json
 score-summary.json
 cost-summary.json
 image-resolution.json
+workspace-source.json
 result.json
 index.html
 ```

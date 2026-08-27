@@ -45,12 +45,42 @@ export function withHarnessDefaults(config: HarnessConfigOverride): HarnessConfi
 }
 
 export function mergeWorkspaceConfig(base: WorkspaceConfig, override?: Partial<WorkspaceConfig>): WorkspaceConfig {
-  if (!override) return { ...base, ignore: [...base.ignore], setup: cloneWorkspaceSetup(base.setup ?? []) };
-  return {
+  if (!override) return cloneWorkspaceConfig(base);
+  const merged: WorkspaceConfig = {
     ...base,
     ...definedObject(override),
     ignore: override.ignore ? [...override.ignore] : [...base.ignore],
     setup: override.setup ? cloneWorkspaceSetup(override.setup) : cloneWorkspaceSetup(base.setup ?? []),
+    git: override.git ? { ...override.git } : base.git ? { ...base.git } : undefined,
+  };
+
+  if (override.git) {
+    merged.source = undefined;
+    merged.fixture = undefined;
+    merged.seedFromImage = false;
+  } else if (override.fixture !== undefined) {
+    merged.source = undefined;
+    merged.git = undefined;
+    merged.seedFromImage = false;
+  } else if (override.source !== undefined) {
+    merged.git = undefined;
+    merged.fixture = undefined;
+    merged.seedFromImage = false;
+  } else if (override.seedFromImage === true) {
+    merged.source = undefined;
+    merged.git = undefined;
+    merged.fixture = undefined;
+  }
+
+  return merged;
+}
+
+function cloneWorkspaceConfig(workspace: WorkspaceConfig): WorkspaceConfig {
+  return {
+    ...workspace,
+    ignore: [...workspace.ignore],
+    setup: cloneWorkspaceSetup(workspace.setup ?? []),
+    git: workspace.git ? { ...workspace.git } : undefined,
   };
 }
 

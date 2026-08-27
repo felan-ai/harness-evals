@@ -104,6 +104,7 @@ Useful harness features:
 
 - `workspace.source` to copy the repo into the container workspace
 - `workspace.fixture` on a case to start from a narrower fixture
+- `workspace.git` to acquire a repository at an exact commit before the run
 - multi-step cases with `steps:`
 - `workspaceDiff` assertions to verify changed, added, or deleted files
 

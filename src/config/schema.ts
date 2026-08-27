@@ -7,8 +7,13 @@ export interface WorkspaceSetupCommand {
   timeoutMs?: number;
 }
 
+export interface WorkspaceGitConfig {
+  repository: string;
+  commit: string;
+}
+
 export interface WorkspaceConfig {
-  source: string;
+  source?: string;
   mode: WorkspaceMode;
   containerPath: string;
   ignore: string[];
@@ -16,6 +21,8 @@ export interface WorkspaceConfig {
   // workspace is mounted and before its baseline snapshot is captured.
   setup?: WorkspaceSetupCommand[];
   fixture?: string;
+  // Exact Git commit acquired on the host into the isolated run workspace.
+  git?: WorkspaceGitConfig;
   // When true, the workspace is seeded by extracting `seedPath` (default /app)
   // from the resolved Docker image instead of copying `source`/`fixture`.
   // Used for Harbor/DeepSWE-style tasks whose repo lives inside the image.

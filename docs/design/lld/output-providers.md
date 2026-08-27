@@ -90,6 +90,7 @@ interface OutputRecord {
 
 type OutputRecordType =
   | 'run.started'
+  | 'workspace.source'
   | 'image.resolution'
   | 'mock.config'
   | 'mock.call'
@@ -139,6 +140,7 @@ The built-in file provider maps output records to the filesystem layout:
 .harness-evals/runs/<test-case>-<agent>-<timestamp>/
   workspace/
   config/
+  workspace-source.json
   image-resolution.json
   mock-config.json
   mock-calls.jsonl

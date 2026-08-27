@@ -95,6 +95,7 @@ Important points:
 - runs do not edit your source tree directly
 - ignore patterns are applied during copy and diffing
 - a test case can point at a fixture directory instead of the default source
+- a test case can use `workspace.git` to acquire an exact commit on the host
 - a case can set `workspace.seedFromImage` to seed the workspace from a path inside the Docker image (default `/app`, including `.git`) instead of copying a source — for tasks whose repo ships in the image
 - multi-step cases reuse the same copied workspace across steps
 

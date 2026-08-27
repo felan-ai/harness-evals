@@ -73,6 +73,7 @@ export type {
   JudgeDefaults,
   ProjectScoringConfig,
   MatrixEntry,
+  WorkspaceGitConfig,
 } from './config/schema.js';
 export type { HarnessRunResult, PassAtKSummary, ScenarioRunContext, ScenarioRunStatus, ScenarioStepResult, ScenarioStepStatus, TestRunResult } from './runner/result.js';
 export type { HiddenPatchResult, ModelPatchArtifact, VerifierRewardResult, VerifierRunResult, VerifierStatus } from './verifier/types.js';

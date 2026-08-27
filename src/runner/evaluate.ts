@@ -16,6 +16,7 @@ import { copyWorkspace } from '../workspace/copy.js';
 import { diffWorkspace } from '../workspace/diff.js';
 import { snapshotWorkspace, type WorkspaceSnapshot } from '../workspace/snapshot.js';
 import { setupWorkspace } from '../workspace/setup.js';
+import { acquireGitWorkspace, cleanupGitWorkspace } from '../workspace/git-source.js';
 import { createOutputDispatcher, type OutputDispatcher } from '../output/dispatcher.js';
 import { createOutputProviderRegistry, type OutputProviderRegistry } from '../output/registry.js';
 import { readMockCallLogs, strictMockFailures, summarizeMockCalls } from '../mocks/calls.js';
@@ -207,7 +208,23 @@ export async function runTestCase(
         timeoutMs: entry.docker.timeoutMs,
       });
     } else {
-      await copyWorkspace(entry.workspace.fixture ?? entry.workspace.source, workspaceDir, { ignore: entry.workspace.ignore });
+      const gitWorkspace = entry.workspace.git ? await acquireGitWorkspace(entry.workspace.git, entry.docker.timeoutMs) : undefined;
+      try {
+        if (gitWorkspace) {
+          await dispatcher.emit({
+            type: 'workspace.source',
+            payload: { type: 'git', repository: gitWorkspace.repository, commit: gitWorkspace.commit },
+          });
+        }
+        const source = gitWorkspace?.path ?? entry.workspace.fixture ?? entry.workspace.source;
+        if (!source) throw new Error('Workspace must select source, fixture, git, or seedFromImage');
+        await copyWorkspace(source, workspaceDir, {
+          ignore: entry.workspace.ignore,
+          includeGitMetadata: Boolean(gitWorkspace),
+        });
+      } finally {
+        await cleanupGitWorkspace(gitWorkspace);
+      }
     }
     await setupWorkspace({
       image: dockerImage,

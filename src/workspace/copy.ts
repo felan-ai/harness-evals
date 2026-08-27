@@ -5,12 +5,14 @@ import { isWorkspaceIgnored, normalizeWorkspacePath } from './ignore.js';
 
 export interface CopyWorkspaceOptions {
   ignore?: string[];
+  includeGitMetadata?: boolean;
 }
 
 export async function copyWorkspace(sourceDir: string, workspaceDir: string, options: CopyWorkspaceOptions = {}): Promise<void> {
   const ignore = options.ignore ?? [];
   const filter = (source: string) => {
     const rel = normalizeWorkspacePath(relative(sourceDir, source));
+    if (options.includeGitMetadata && (rel === '.git' || rel.startsWith('.git/'))) return true;
     return !isWorkspaceIgnored(rel, ignore);
   };
 

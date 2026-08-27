@@ -113,7 +113,7 @@ Useful top-level sections:
 
 - `artifactRoot`: per-run artifacts
 - `outputRoot`: exported/latest reports
-- `workspace`: source copy / seed settings (`source`, `fixture`, or `seedFromImage`)
+- `workspace`: source copy / Git / seed settings (`source`, `fixture`, `git`, or `seedFromImage`)
 - `docker`: runtime image (`image` ready / `baseImage` + `baseSetup` managed), timeout, env allowlist
 - `agents`: named agent configs
 - `tests`: project-relative globs for test case YAML files
@@ -243,6 +243,10 @@ Rules enforced by the loader:
 - test globs must be project-relative
 - `~` is not allowed in test globs
 - path traversal such as `../` is rejected for test globs and fixtures
+- project-contained `file:` URLs in `workspace.git.repository` are resolved
+  against the same project-root boundary
+- Git commits must be full 40-character hexadecimal SHAs; Git repositories must
+  be credential-free HTTPS URLs or project-contained `file:` URLs
 - project-relative paths must stay inside the project root
 
 Mock fixture references support two forms:

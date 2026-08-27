@@ -7,6 +7,7 @@ export interface OutputProviderConfig {
 
 export type OutputRecordType =
   | 'run.started'
+  | 'workspace.source'
   | 'image.resolution'
   | 'mock.config'
   | 'mock.call'

@@ -21,7 +21,12 @@ The first implementation provides file-based reports similar to promptfoo's HTML
 - A per-run `index.html` with detailed test-case/agent/step pages or sections.
 - A `harness-evals view` command that opens the latest report or serves a local viewer.
 
-The report emphasizes comparison. Rows represent test cases. Columns represent selected agents/models. Cells summarize pass/fail/error, score, duration, cost, token usage, assertion failures, and links to details.
+The reports emphasize comparison. The per-run/latest HTML groups results by
+test case, renders selected agent/model configurations as columns, and renders
+status, score, duration, requests, token usage, cost, assertions, result, and
+actions as metric rows. The workspace aggregate HTML retains its cross-case
+agent/model matrix. Both summarize pass/fail/error, score, duration, cost,
+token usage, assertion failures, and links to details.
 
 ## 2. Data Model / Contracts
 
@@ -197,7 +202,7 @@ Rules:
 3. The view model is derived from output records and file artifacts; it does not duplicate runner business logic.
 4. HTML rendering uses already-redacted records and artifacts.
 5. Missing optional data appears as unavailable, not zero.
-6. The report should keep large logs collapsed or linked so the top-level table remains usable.
+6. The per-run report should keep large logs behind the scrollable details modal or linked so the top-level case groups remain usable.
 7. Multiple agents/models are shown side-by-side for the same test case when present in one run.
 
 ## 4. Read Path / Write Path
@@ -232,10 +237,14 @@ The first HTML report should provide:
 3. Filters for all, failures, passes, errors, skipped, and changed/different agent outcomes.
 4. Sort controls for score, duration, cost, and test case id.
 5. Cell details with failed assertion reasons, required failure markers, and score buckets.
-6. Expandable step details with output, stdout/stderr links, events, tool calls, mock calls, and judge results.
+6. A scrollable per-run details modal with output, stdout/stderr links, events, tool calls, mock calls, and judge results. It must close with its visible X button or Escape and restore focus to the opener.
 7. Workspace diff summary and file lists.
 8. Redaction-safe links to raw artifacts.
 9. No external network dependencies for rendering.
+
+Artifact links must resolve through both the file-relative report layout and
+the viewer's `/runs/` route. Relocating a latest HTML export must update its
+file-relative targets without exposing absolute filesystem paths.
 
 ## 6. Failure Modes
 
@@ -253,7 +262,7 @@ The first HTML report should provide:
 - Static HTML is the first target because it is shareable and requires no service.
 - JSON and CSV exports are generated from the same view model to keep automation and human reports consistent.
 - The viewer reads from file-provider artifacts for local history; database-backed history can be added through an output provider query API later.
-- Large logs are linked or collapsed rather than fully embedded by default.
+- Large logs are linked or placed behind the per-run scrollable details modal rather than shown in the case summary by default.
 - Visualization remains a derived read model so output records stay authoritative.
 
 ## 8. Design Decisions

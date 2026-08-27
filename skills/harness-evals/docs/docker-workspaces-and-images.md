@@ -88,11 +88,18 @@ steps:
 
 Behavior:
 
-- if `workspace.fixture` is set on the test case, harness-evals copies that fixture into the run workspace
+- if `workspace.git` is set, harness-evals fetches and verifies the exact commit on the host, then copies that checkout (including `.git`) into the run workspace
+- otherwise, if `workspace.fixture` is set, harness-evals copies that fixture into the run workspace
 - otherwise it copies `workspace.source`
 - the same copied workspace is shared across all steps in the scenario
 
 Fixture paths are resolved relative to the project root and path traversal outside the project is rejected.
+
+Git sources are acquired before Docker setup commands run. Only credential-free
+HTTPS URLs and project-contained `file:` URLs are accepted, and `commit` must be
+a full 40-character hexadecimal SHA. The temporary acquisition checkout is
+removed after it has been copied, including when setup or copy fails. The runtime
+image should provide tools and dependencies; it should not fetch the source.
 
 ## Seed the workspace from the image
 

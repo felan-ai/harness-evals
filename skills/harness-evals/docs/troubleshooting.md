@@ -27,6 +27,14 @@ Fixes:
 - keep mock fixture references inside `evals/mocks/...`
 - remove `../...` segments from config values
 
+## Git source acquisition errors
+
+Git workspace sources are fetched on the host before the Docker workspace is
+prepared. Check that the host can reach the repository, the requested full SHA
+still exists upstream, and the URL does not contain credentials or unsupported
+protocols. Do not add a `git clone` setup command: setup runs in a network-disabled
+container and is intentionally too late for source acquisition.
+
 ## Docker image setup problems
 
 ### Ready image probe failures

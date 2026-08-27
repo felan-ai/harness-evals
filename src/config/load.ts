@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import fg from 'fast-glob';
 import YAML from 'yaml';
 import { safeStepId } from '../step-id.js';
@@ -30,6 +31,7 @@ import type {
   VisualizationConfig,
   VisualizationFormat,
   WorkspaceConfig,
+  WorkspaceGitConfig,
 } from './schema.js';
 
 export interface LoadHarnessConfigOptions {
@@ -142,8 +144,9 @@ function normalizeHarnessConfig(config: HarnessConfig, projectRoot: string): Har
     outputRoot: resolveProjectPath(projectRoot, config.outputRoot, 'outputRoot'),
     workspace: {
       ...config.workspace,
-      source: resolveProjectPath(projectRoot, config.workspace.source, 'workspace.source'),
+      source: config.workspace.source ? resolveProjectPath(projectRoot, config.workspace.source, 'workspace.source') : undefined,
       fixture: resolveOptionalProjectPath(projectRoot, config.workspace.fixture, 'workspace.fixture'),
+      git: normalizeWorkspaceGitConfig(config.workspace.git, projectRoot, 'workspace.git'),
     },
     mocks: {
       ...config.mocks,
@@ -583,10 +586,37 @@ function readWorkspaceConfig(value: unknown, field: string): Partial<WorkspaceCo
   const raw = readOptionalRecord(value, field);
   if (!raw) return undefined;
   const setup = readWorkspaceSetup(raw.setup, `${field}.setup`);
+  const git = readWorkspaceGitConfig(raw.git, `${field}.git`);
+  validateWorkspaceSourceSelection(raw, field);
   return {
     ...raw,
     ...(setup ? { setup } : {}),
+    ...(git ? { git } : {}),
   } as Partial<WorkspaceConfig>;
+}
+
+function readWorkspaceGitConfig(value: unknown, field: string): WorkspaceGitConfig | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value)) throw new Error(`${field} must be an object`);
+  assertKnownKeys(value, ['repository', 'commit'], field);
+  const repository = readOptionalString(value.repository, `${field}.repository`);
+  if (!repository) throw new Error(`${field}.repository is required`);
+  const commit = readOptionalString(value.commit, `${field}.commit`);
+  if (!commit) throw new Error(`${field}.commit is required`);
+  if (!/^[0-9a-f]{40}$/iu.test(commit)) throw new Error(`${field}.commit must be a full 40-character hexadecimal SHA`);
+  return { repository, commit: commit.toLowerCase() };
+}
+
+function validateWorkspaceSourceSelection(value: Record<string, unknown>, field: string): void {
+  const selectors = [
+    value.source === undefined || value.source === null ? undefined : 'source',
+    value.fixture === undefined || value.fixture === null ? undefined : 'fixture',
+    value.git === undefined || value.git === null ? undefined : 'git',
+    value.seedFromImage === true ? 'seedFromImage' : undefined,
+  ].filter((entry): entry is string => entry !== undefined);
+  if (selectors.length > 1) {
+    throw new Error(`${field} must select only one of source, fixture, git, or seedFromImage; received ${selectors.join(', ')}`);
+  }
 }
 
 function readWorkspaceSetup(value: unknown, field: string): WorkspaceConfig['setup'] | undefined {
@@ -616,6 +646,7 @@ function normalizeTestCase(testCase: TestCase, projectRoot: string, path: string
   const source = testCase.workspace?.source
     ? resolveProjectPath(projectRoot, testCase.workspace.source, `workspace.source in ${path}`)
     : undefined;
+  const git = normalizeWorkspaceGitConfig(testCase.workspace?.git, projectRoot, `workspace.git in ${path}`);
   const hiddenPatch = testCase.verifier?.hiddenPatch
     ? resolveProjectPath(projectRoot, testCase.verifier.hiddenPatch, `verifier.hiddenPatch in ${path}`)
     : undefined;
@@ -628,11 +659,48 @@ function normalizeTestCase(testCase: TestCase, projectRoot: string, path: string
     validateMockReferences(step.mocks, mocks.root, projectRoot, `steps.${step.id}.mocks in ${path}`);
   }
 
+  const workspace = testCase.workspace ? { ...testCase.workspace } : undefined;
+  if (workspace) {
+    if (source) workspace.source = source;
+    else delete workspace.source;
+    if (fixture) workspace.fixture = fixture;
+    else delete workspace.fixture;
+    if (git) workspace.git = git;
+    else delete workspace.git;
+  }
+
   return {
     ...testCase,
-    workspace: testCase.workspace ? { ...testCase.workspace, source, fixture } : undefined,
+    workspace,
     verifier: testCase.verifier ? { ...testCase.verifier, hiddenPatch, assetsDir } : undefined,
   };
+}
+
+function normalizeWorkspaceGitConfig(
+  git: WorkspaceGitConfig | undefined,
+  projectRoot: string,
+  field: string,
+): WorkspaceGitConfig | undefined {
+  if (!git) return undefined;
+
+  let url: URL;
+  try {
+    url = new URL(git.repository);
+  } catch {
+    throw new Error(`${field}.repository must be a credential-free HTTPS URL or a project-contained file URL`);
+  }
+  if (url.username || url.password) throw new Error(`${field}.repository must not include credentials`);
+  if (url.search || url.hash) throw new Error(`${field}.repository must not include a query string or fragment`);
+
+  if (url.protocol === 'https:') {
+    if (!url.hostname) throw new Error(`${field}.repository must include a host`);
+    return { ...git, repository: url.href };
+  }
+  if (url.protocol === 'file:') {
+    const repositoryPath = resolveProjectPath(projectRoot, fileURLToPath(url), `${field}.repository`);
+    return { ...git, repository: pathToFileURL(repositoryPath).href };
+  }
+  throw new Error(`${field}.repository must use https or a project-contained file URL`);
 }
 
 function readAssertions(value: unknown, field: string): AssertionConfig[] {

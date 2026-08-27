@@ -82,6 +82,9 @@ class FileOutputProvider implements OutputProvider {
       case 'run.started':
         await writeJson(join(this.options.runDir, 'run-started.json'), record.payload);
         break;
+      case 'workspace.source':
+        await writeJson(join(this.options.runDir, 'workspace-source.json'), record.payload);
+        break;
       case 'image.resolution':
         await writeJson(join(this.options.runDir, 'image-resolution.json'), record.payload);
         break;
@@ -198,14 +201,16 @@ class FileOutputProvider implements OutputProvider {
     const report = buildRunReport(payload, { runId: 'latest', include: visualization.include });
     await mkdir(latestDir, { recursive: true });
     for (const format of visualization.formats) {
-      await writeText(join(latestDir, `results.${format}`), renderReport(report, format));
+      const reportPath = join(latestDir, `results.${format}`);
+      await writeText(reportPath, renderReport(report, format, { reportPath }));
     }
   }
 
   private async writeRunIndex(payload: unknown): Promise<void> {
     if (!this.options.runDir || !this.shouldRenderFormat('html')) return;
     const report = buildRunReport(payload, { include: this.visualization().include });
-    await writeText(join(this.options.runDir, 'index.html'), renderReport(report, 'html'));
+    const reportPath = join(this.options.runDir, 'index.html');
+    await writeText(reportPath, renderReport(report, 'html', { reportPath }));
   }
 
   private shouldRenderFormat(format: VisualizationFormat): boolean {

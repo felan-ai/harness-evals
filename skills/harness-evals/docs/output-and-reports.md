@@ -37,6 +37,7 @@ Common files in a run directory:
 - `mock-config.json` and `mock-calls.jsonl` when mocks are used
 - `model.patch` when model patch capture is enabled
 - `hidden-patch.json` when a hidden patch is applied
+- `workspace-source.json` when the workspace comes from an exact Git commit
 
 Verifier files live under `verifier/` when a case has `verifier`:
 
@@ -203,15 +204,36 @@ Behavior:
 
 If a format is not enabled, the CLI fails with `Visualization format is not enabled: ...`.
 
-## What the HTML report is for
+## What the HTML reports are for
 
-The built-in HTML report is a triage view.
+The built-in HTML reports are triage views. The per-run/latest report and the
+workspace aggregate dashboard are separate surfaces.
 
-It shows:
+The per-run/latest report:
+
+- groups results by test case
+- shows one column for each agent/provider/model configuration
+- shows status, score, human-readable agent time, requests, tokens, cost,
+  assertions, result, and actions as metric rows within each test case
+- formats display values for humans (for example `6m 35s`, `1,753,194`, and
+  `$0.84938`); `results.json` and `results.csv` retain exact machine-readable
+  values
+- opens diagnostics with **View details**. Details appear in a scrollable
+  modal with a visible **X** close button, backdrop close, and Escape-key close.
+  Focus returns to the button that opened the modal.
+- keeps run-artifact and log links portable when the report is opened as a
+  file, served by `harness-evals view --port`, or exported to another folder
+
+The workspace aggregate dashboard shows:
 
 - one column per agent/provider/model combination
 - one row per test case
-- status, score, duration, cost, tokens, and assertion summary per cell
-- expandable details for steps, failed assertions, tool calls, mock calls, judge results, verifier results, workspace diff, and log links when included
+- status, score, duration, cost, tokens, and assertion summary per matrix cell
+- inline aggregate comparisons and historical run links
+
+Both surfaces can include steps, failed assertions, tool calls, mock calls,
+judge results, verifier results, workspace diffs, and log links when enabled.
+The per-run/latest surface uses one metric matrix per test case and puts
+diagnostics in the modal; the aggregate dashboard keeps its cross-case matrix.
 
 Use the raw JSON artifacts when you need machine-readable detail; use HTML or CSV for comparison and review.

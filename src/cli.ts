@@ -271,11 +271,17 @@ async function exportReport(parsed: ParsedArgs): Promise<void> {
 
   await mkdir(dirname(output), { recursive: true });
 
-  // Back-compat: copy the last invocation's pre-rendered summary verbatim.
+  // Back-compat: reuse the last invocation's pre-rendered summary. HTML links
+  // are relocated so file exports still point at the configured artifact root.
   if (parsed.latest) {
     const latest = join(config.outputRoot, 'latest', `results.${parsed.format}`);
     if (!existsSync(latest)) throw new Error(`Report not found: ${latest}`);
-    await copyFile(latest, output);
+    if (parsed.format === 'html') {
+      const html = await readFile(latest, 'utf8');
+      await writeFile(output, relocateHtmlArtifactLinks(html, config.artifactRoot, output));
+    } else {
+      await copyFile(latest, output);
+    }
     console.log(output);
     return;
   }
@@ -285,7 +291,7 @@ async function exportReport(parsed: ParsedArgs): Promise<void> {
     if (!existsSync(resultPath)) throw new Error(`Run result not found: ${resultPath}`);
     const result = JSON.parse(await readFile(resultPath, 'utf8')) as unknown;
     const report = buildRunReport(result, { runId: parsed.runId, include: config.visualization.include });
-    await writeFile(output, renderReport(report, parsed.format));
+    await writeFile(output, renderReport(report, parsed.format, { reportPath: output }));
     console.log(output);
     return;
   }
@@ -326,6 +332,24 @@ async function exportReport(parsed: ParsedArgs): Promise<void> {
 function readFormat(value: string): VisualizationFormat {
   if (value === 'html' || value === 'json' || value === 'csv') return value;
   throw new Error('--format must be html, json, or csv');
+}
+
+function relocateHtmlArtifactLinks(html: string, artifactRoot: string, output: string): string {
+  return html.replace(/href="[^"]*" data-http-href="(\/runs\/[^"]+)"/g, (attributes, httpHref: string) => {
+    let decodedPath: string;
+    try {
+      decodedPath = decodeURIComponent(httpHref.slice('/runs/'.length));
+    } catch {
+      return attributes;
+    }
+    const artifactPath = safeJoin(artifactRoot, decodedPath);
+    if (!artifactPath) return attributes;
+    const relativePath = relative(dirname(output), artifactPath);
+    const href = isAbsolute(relativePath)
+      ? httpHref
+      : relativePath.replaceAll('\\', '/').split('/').filter(Boolean).map((part) => part === '..' ? part : encodeURIComponent(part)).join('/') || '.';
+    return attributes.replace(/^href="[^"]*"/, `href="${href}"`);
+  });
 }
 
 async function serveReports(config: Awaited<ReturnType<typeof loadHarnessConfig>>, port: number, initialPath: string, open: boolean): Promise<void> {

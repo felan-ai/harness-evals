@@ -731,9 +731,9 @@ test('file output provider owns default run layout and latest summary files', as
   expect(JSON.parse(await readFile(join(runDir, 'steps', 'run', 'assertions.json'), 'utf8'))[0].pass).toBe(true);
   const latestReport = JSON.parse(await readFile(join(outputRoot, 'latest', 'results.json'), 'utf8'));
   expect(latestReport.status).toBe('passed');
-  expect(await readFile(join(outputRoot, 'latest', 'results.html'), 'utf8')).toContain('Harness Evals Results: PASSED');
+  expect(await readFile(join(outputRoot, 'latest', 'results.html'), 'utf8')).toContain('Harness Evals Results: Passed');
   expect(await readFile(join(outputRoot, 'latest', 'results.csv'), 'utf8')).toContain('runId,testCaseId,suite,agentName');
-  expect(await readFile(join(runDir, 'index.html'), 'utf8')).toContain('Harness Evals Results: PASSED');
+  expect(await readFile(join(runDir, 'index.html'), 'utf8')).toContain('Harness Evals Results: Passed');
 });
 
 test('file output provider honors visualization disabled, formats, and latest config', async () => {
@@ -860,6 +860,29 @@ visualization:
   expect(new TextDecoder().decode(csvExport.stderr)).toContain('Visualization format is not enabled: csv');
 });
 
+test('CLI latest HTML export relocates artifact links', async () => {
+  const root = await tempRoot();
+  const cliPath = join(import.meta.dir, '..', 'src', 'cli.ts');
+  const latestDir = join(root, 'output', 'latest');
+  const exported = join(root, 'exports', 'report.html');
+  await mkdir(latestDir, { recursive: true });
+  await writeFile(join(root, 'harness-evals.yaml'), `
+version: 1
+artifactRoot: artifacts
+outputRoot: output
+visualization:
+  formats: [html]
+`);
+  await writeFile(join(latestDir, 'results.html'), '<a href="../../artifacts/run-a/steps/run/stdout.log" data-http-href="/runs/run-a/steps/run/stdout.log">stdout</a>');
+
+  const result = Bun.spawnSync(['bun', cliPath, 'export', '--latest', '--config', join(root, 'harness-evals.yaml'), '--format', 'html', '--output', exported], { cwd: root });
+
+  expect(result.exitCode).toBe(0);
+  const html = await readFile(exported, 'utf8');
+  expect(html).toContain('href="../artifacts/run-a/steps/run/stdout.log"');
+  expect(html).toContain('data-http-href="/runs/run-a/steps/run/stdout.log"');
+});
+
 test('visualization report compares agents and exposes triage details', () => {
   const report = buildRunReport({
     pass: false,
@@ -876,6 +899,68 @@ test('visualization report compares agents and exposes triage details', () => {
   expect(report.rows[0].cells['agent-b|openai|gpt-4.1'].details.toolCalls).toEqual([{ name: 'edit', args: { path: 'b.txt' } }]);
   expect(report.rows[0].cells['agent-b|openai|gpt-4.1'].details.mockCalls).toEqual([{ name: 'gh', count: 1 }]);
   expect(report.rows[0].cells['agent-b|openai|gpt-4.1'].details.workspaceDiff).toEqual({ added: [], changed: ['b.txt'], deleted: [] });
+});
+
+test('per-run HTML groups test cases into agent-column metric matrices', async () => {
+  const root = await tempRoot();
+  const runRoot = join(root, 'custom-runs');
+  const report = buildRunReport({
+    pass: false,
+    results: [
+      reportResult('case-a', 'agent-a', true, 0.9, 123456, { added: [], changed: [], deleted: [] }),
+      reportResult('case-a', 'agent-b', false, 0.2, 20, { added: [], changed: ['b.txt'], deleted: [] }),
+      reportResult('case-b', 'agent-a', true, 0.8, 1000, { added: ['a.txt'], changed: [], deleted: [] }),
+    ],
+  }, { runId: 'latest' });
+  report.rows[0]!.cells['agent-a|openai|gpt-4.1'].cost = costSummary(1.234567, 1234567);
+  report.rows[0]!.cells['agent-a|openai|gpt-4.1'].tokenUsage = report.rows[0]!.cells['agent-a|openai|gpt-4.1'].cost?.rollup;
+  for (const row of report.rows) {
+    for (const [key, cell] of Object.entries(row.cells)) cell.runDir = join(runRoot, `${row.testCaseId}-${key.split('|')[0]}`);
+  }
+
+  const html = renderReport(report, 'html', { reportPath: join(root, 'custom-output', 'latest', 'results.html') });
+
+  expect((html.match(/class="test-case"/g) ?? []).length).toBe(2);
+  expect((html.match(/class="metric-matrix"/g) ?? []).length).toBe(2);
+  expect(html).toContain('<th scope="col"><strong>agent-a</strong>');
+  expect(html).toContain('<th scope="col"><strong>agent-b</strong>');
+  expect(html).toContain('<th scope="row">Score</th>');
+  expect(html).toContain('<th scope="row">Duration</th>');
+  expect(html).toContain('<th scope="row">Requests</th>');
+  expect(html).toContain('<th scope="row">Tokens</th>');
+  expect(html).toContain('<th scope="row">Cost</th>');
+  expect(html).toContain('case-a');
+  expect(html).toContain('agent-a');
+  expect(html).toContain('2m 3s');
+  expect(html).toContain('1,234,567');
+  expect(html).toContain('$1.23457');
+  expect(html).toContain('Not run');
+  expect(html).toContain('../../custom-runs/case-a-agent-a');
+  expect(html).toContain('data-http-href="/runs/case-a-agent-a"');
+  expect(html).toContain("location.protocol==='http:'||location.protocol==='https:'");
+  expect(html).toContain('rewriteHttpLinks(body)');
+  expect(html).not.toContain(`href="${runRoot}`);
+  expect(html).toContain('data-filter="incomplete"');
+  expect(html).toContain('class="status incomplete">Passed · Incomplete');
+  expect(html).not.toContain('fonts.googleapis.com');
+  expect(html).toContain('Test cases');
+  expect(html).toContain('Agent runs');
+});
+
+test('per-run detail template ids remain unique for punctuation variants', () => {
+  const report = buildRunReport({
+    results: [
+      reportResult('case/a', 'agent a', true, 1, 1000, { added: [], changed: [], deleted: [] }),
+      reportResult('case a', 'agent/a', true, 1, 1000, { added: [], changed: [], deleted: [] }),
+    ],
+  }, { runId: 'latest' });
+
+  const html = renderReport(report, 'html');
+  const ids = [...html.matchAll(/<template id="([^"]+)"/g)].map((match) => match[1]);
+
+  expect(ids).toHaveLength(2);
+  expect(new Set(ids).size).toBe(2);
+  for (const id of ids) expect(html).toContain(`data-details="${id}"`);
 });
 
 test('visualization include controls report details', () => {
@@ -906,6 +991,14 @@ test('visualization include controls report details', () => {
   expect(html).not.toContain('<h4>Judge results</h4>');
   expect(html).not.toContain('<h4>Workspace diff</h4>');
   expect(html).not.toContain('<h4>Logs</h4>');
+  expect(html).toContain('<dialog class="details-dialog"');
+  expect(html).toContain('aria-label="Close details"');
+  expect(html).toContain('data-details=');
+  expect(html).toContain('dialog.addEventListener(\'cancel\'');
+  expect(html).toContain('dialog.addEventListener(\'close\'');
+  expect(html).toContain('dialog.querySelector(\'.dialog-close\').addEventListener');
+  expect(html).toContain('class="dialog-body"');
+  expect(html).not.toContain('<details class="result-details"');
 });
 
 test('custom output providers load from project modules with named exports', async () => {

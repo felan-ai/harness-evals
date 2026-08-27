@@ -187,7 +187,24 @@ workspace:
   source: app
 ```
 
-or point at a smaller fixture:
+To run against an exact revision from a Git repository, use a credential-free
+HTTPS URL (or a project-contained `file:` URL) and a full commit SHA:
+
+```yaml
+workspace:
+  git:
+    repository: https://github.com/acme/project.git
+    commit: 0123456789abcdef0123456789abcdef01234567
+```
+
+The harness acquires this commit on the host into a temporary directory, verifies
+the detached `HEAD`, removes remotes, and copies it into the run workspace. Git
+acquisition requires host network access; it does not happen in Docker setup or
+the agent runtime image. The copied Git metadata is retained so the agent and
+verifier can inspect history. The repository must retain the requested object for
+future runs; an SHA does not guarantee permanent upstream availability.
+
+Alternatively, point at a smaller fixture:
 
 ```yaml
 workspace:
