@@ -1,6 +1,6 @@
 {
   "name": "harness-evals",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "type": "module",
   "bin": {
     "harness-evals": "dist/cli.js"
