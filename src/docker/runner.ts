@@ -224,11 +224,14 @@ function withNetworkEnv(envValues: Record<string, string> | undefined, network: 
   };
 }
 
-function buildContainerName(caseId: string, agentName: string): string {
+export function buildContainerName(caseId: string, agentName: string, suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`): string {
   const safeCaseId = sanitizePathPart(caseId);
   const safeAgentName = sanitizePathPart(agentName);
-  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  return `harness-eval-${safeCaseId}-${safeAgentName}-${suffix}`.slice(0, 63);
+  const safeSuffix = sanitizePathPart(suffix).slice(-24);
+  const prefix = 'harness-eval-';
+  const identityLength = 63 - prefix.length - safeSuffix.length - 1;
+  const identity = `${safeCaseId}-${safeAgentName}`.slice(0, identityLength).replace(/[._-]+$/, '') || 'case';
+  return `${prefix}${identity}-${safeSuffix}`;
 }
 
 function sanitizePathPart(value: string): string {

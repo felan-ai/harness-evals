@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadHarnessConfig } from '../src/config/load.js';
 import { buildDockerArgs } from '../src/docker/args.js';
+import { buildContainerName } from '../src/docker/runner.js';
 import { piAdapter } from '../src/adapters/pi.js';
 import { felanAdapter } from '../src/adapters/felan.js';
 import { parsePiJsonlEvents } from '../src/adapters/pi-jsonl.js';
@@ -628,6 +629,25 @@ test('docker args include copied workspace and env allowlist', () => {
   expect(args).toContain('type=bind,source=/host/ro,target=/ro,readonly');
   expect(args).toContain('OPENAI_API_KEY');
   expect(args.slice(-3)).toEqual(['image', 'echo', 'hi']);
+});
+
+test('docker container names retain unique suffixes after truncation', () => {
+  const first = buildContainerName(
+    'output-style-coding-summary',
+    'felan-no-output-style',
+    '1234567890123-aaaaaa',
+  );
+  const second = buildContainerName(
+    'output-style-coding-summary',
+    'felan-no-output-style',
+    '1234567890123-bbbbbb',
+  );
+
+  expect(first.length).toBeLessThanOrEqual(63);
+  expect(second.length).toBeLessThanOrEqual(63);
+  expect(first).toEndWith('-1234567890123-aaaaaa');
+  expect(second).toEndWith('-1234567890123-bbbbbb');
+  expect(first).not.toBe(second);
 });
 
 test('docker args include network policy controls', () => {
