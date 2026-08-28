@@ -1,7 +1,7 @@
 # LLD — Output Providers
 
 > **HLD:** `../HDL.md`
-> **Companion LLDs:** `agent-first-install-and-config.md`, `scenario-runner.md`, `adapter-registry-and-contract.md`, `managed-images.md`, `validation-scoring-and-judging.md`, `cost-and-artifacts.md`, `mock-mcps-and-clis.md`, `result-visualization.md`
+> **Companion LLDs:** `agent-first-install-and-config.md`, `scenario-runner.md`, `adapter-registry-and-contract.md`, `managed-images.md`, `validation-scoring-and-judging.md`, `cost-and-artifacts.md`, `mock-mcps-and-clis.md`, `result-visualization.md`, `public-results-archive.md`
 > **Status:** Draft
 
 ## How this fits
@@ -13,6 +13,11 @@ This LLD defines the output provider boundary from the HLD. The test-case runner
 Output providers own all persistence for completed and in-progress runs: logs, command metadata, event summaries, assertions, scores, costs, image metadata, workspace diffs, run results, and comparison summaries. A provider can write to the filesystem, a database, object storage, or another durable target.
 
 The runner does not write directly to provider-specific storage. It emits output records to an output dispatcher. The dispatcher fans each record out to every configured output provider. If the user does not configure output providers, the dispatcher enables the built-in file provider and stores the full run on the filesystem.
+
+The V1 public results archive is intentionally separate from this live provider
+lifecycle. It projects compact summaries from completed local batches only
+after an explicit publish command; see `public-results-archive.md`. A future
+raw remote output provider remains a separate concern.
 
 ## 2. Data Model / Contracts
 

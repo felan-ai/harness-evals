@@ -327,3 +327,37 @@ harness-evals export --run <run-id> --format json --output run.json
 ```
 
 Use `--config path/to/harness-evals.yaml` when you are not running from the project tree that contains the config.
+
+## Public results archive
+
+The optional `results.publish` section enables explicit publication of compact
+completed batch summaries. V1 supports a local filesystem store, which is
+useful for testing and staging:
+
+```yaml
+results:
+  publish:
+    store:
+      type: file
+      root: .harness-evals/public-results
+    prefix: harness-evals-results
+    publicBaseUrl: https://results.example.com/harness-evals-results/v1
+```
+
+Run `harness-evals publish --batch <batch-id>` after a run. The publisher
+writes immutable per-batch `manifest.json`, `results.html`, and `results.csv`
+objects before updating the root catalog. Use `--dry-run` to validate without
+writing. `publish-status` reclassifies an existing catalog entry without
+reading local artifacts; its `--dry-run` option validates without updating the
+catalog. The public projection contains summary dimensions,
+status, score, usage, and cost only; it excludes logs, transcripts,
+workspaces, verifier details, credentials, raw errors, and filesystem paths.
+
+The archive store is intentionally provider-neutral. Supabase Storage or
+Vercel Blob can be implemented behind the same interface once deployment
+requirements are chosen.
+
+The archive root aggregates all published batches. Its **Latest results** view
+unions suites and cases and selects the newest result for each case/agent pair;
+**All runs / attempts** retains every observation for longitudinal comparison.
+Use the suite, case, agent, validity, and status filters to narrow the view.

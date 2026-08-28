@@ -71,6 +71,11 @@ Useful fields:
 - `envAllowlist`: additional env names to forward for this agent.
 - `timeoutMs`: per-step timeout override.
 - `parser`: output parser. Built-ins default to `text`, except `pi` and `felan`, which default to `pi-jsonl`.
+- `comparisonId`: optional stable public identity for comparing this effective
+  profile across batches or config roots. Use a short authored ID such as
+  `felan-full`; do not derive it from paths, credentials, or serialized config.
+- `label`: optional display label. It is not a stable identity and may change
+  without changing `comparisonId`.
 
 Adapter-specific fields used by built-ins:
 

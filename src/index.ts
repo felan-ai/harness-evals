@@ -69,6 +69,9 @@ export type {
   NetworkPolicyMode,
   OutputConfig,
   OutputProviderConfig,
+  ResultsConfig,
+  ResultsPublishConfig,
+  ResultsStoreConfig,
   VisualizationConfig,
   JudgeDefaults,
   ProjectScoringConfig,
@@ -76,6 +79,13 @@ export type {
   WorkspaceGitConfig,
 } from './config/schema.js';
 export type { HarnessRunResult, PassAtKSummary, ScenarioRunContext, ScenarioRunStatus, ScenarioStepResult, ScenarioStepStatus, TestRunResult } from './runner/result.js';
+export { publishBatch, publishBatchStatus } from './results/public/publish.js';
+export { FilePublicResultsStore } from './results/public/stores/file.js';
+export type { LocalBatchRecord } from './runner/batch-record.js';
+export type {
+  PublicBatchIndexEntry, PublicBatchManifest, PublicBatchTotals, PublicBatchValidity, PublicCostSummary,
+  PublicProvenance, PublicResultsIndex, PublicResultsObjectOptions, PublicResultsStore, PublicRunStatus, PublicRunSummary,
+} from './results/public/types.js';
 export type { HiddenPatchResult, ModelPatchArtifact, VerifierRewardResult, VerifierRunResult, VerifierStatus } from './verifier/types.js';
 export type { WorkspaceDiff } from './workspace/diff.js';
 export type { AgentEventsSummary, ToolCallSummary, MockCallSummary, CostReport, CostRollup, UsageReport } from './events/types.js';

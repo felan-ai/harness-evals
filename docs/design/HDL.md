@@ -248,6 +248,7 @@ Visualization is a read model, not the source of truth. Output records and provi
 - [`lld/output-providers.md`](lld/output-providers.md) — pluggable output persistence and default file output.
 - [`lld/mock-mcps-and-clis.md`](lld/mock-mcps-and-clis.md) — deterministic mocks for MCP servers and CLI tools.
 - [`lld/result-visualization.md`](lld/result-visualization.md) — static reports, JSON/CSV exports, and local result viewing.
+- [`lld/public-results-archive.md`](lld/public-results-archive.md) — explicit post-run publication of compact batch summaries to public object storage.
 
 ## Decision Log
 

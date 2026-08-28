@@ -17,3 +17,4 @@ These documents are contributor-facing architecture notes for harness-evals. The
 - [Output providers](lld/output-providers.md)
 - [Mock MCPs and CLIs](lld/mock-mcps-and-clis.md)
 - [Result visualization](lld/result-visualization.md)
+- [Public results archive](lld/public-results-archive.md)

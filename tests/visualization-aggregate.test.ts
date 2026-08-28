@@ -95,6 +95,17 @@ assert: []
   expect(started.batch?.batchId).toBe(summaries[0]?.batchId as string);
   expect(started.batch?.label).toBe('a · 2 cases');
   expect(started.batch?.argv).toEqual(['run', '--agents', 'a']);
+
+  const batchRecord = JSON.parse(await readFile(join(root, '.harness-evals', 'batches', `${started.batch?.batchId}.json`), 'utf8')) as {
+    status: string;
+    expectedRunCount: number;
+    runIds: string[];
+    completedAt?: string;
+  };
+  expect(batchRecord.status).toBe('completed');
+  expect(batchRecord.expectedRunCount).toBe(2);
+  expect(batchRecord.runIds).toEqual(result.results.map((run) => run.runId));
+  expect(new Date(batchRecord.completedAt ?? '').getTime()).toBeGreaterThan(0);
 });
 
 test('error-path runs still carry a batchId in summary.json', async () => {
@@ -126,6 +137,12 @@ assert: []
   const summary = JSON.parse(await readFile(join(result.results[0].runDir, 'summary.json'), 'utf8')) as Record<string, unknown>;
   expect(typeof summary.batchId).toBe('string');
   expect(summary.suite).toBe('pilot');
+  const batchRecord = JSON.parse(await readFile(join(root, '.harness-evals', 'batches', `${summary.batchId as string}.json`), 'utf8')) as {
+    status: string;
+    expectedRunCount: number;
+    runIds: string[];
+  };
+  expect(batchRecord).toMatchObject({ status: 'completed', expectedRunCount: 1, runIds: [result.results[0].runId] });
 });
 
 async function writeRunDir(root: string, name: string, files: Record<string, unknown>): Promise<string> {
@@ -162,6 +179,7 @@ test('scanWorkspaceRuns reads modern, legacy, corrupt, and incomplete run dirs',
     'run-started.json': {
       caseId: 'case-a', agentName: 'claude',
       batch: { batchId: '20260610-180413-abcd', startedAt: '2026-06-10T18:04:13.000Z', label: 'claude · 1 case', argv: ['run'], agents: ['claude'] },
+      agent: { label: 'Claude', comparisonId: 'claude-default' },
       testCase: { suite: 'pilot' },
     },
   });
@@ -187,6 +205,8 @@ test('scanWorkspaceRuns reads modern, legacy, corrupt, and incomplete run dirs',
   expect(modern?.batchId).toBe('20260610-180413-abcd');
   expect(modern?.batchSynthetic).toBe(false);
   expect(modern?.suite).toBe('pilot');
+  expect(modern?.agentLabel).toBe('Claude');
+  expect(modern?.comparisonId).toBe('claude-default');
   expect(modern?.models).toEqual(['claude-fable-5', 'claude-haiku-4-5']);
   expect(modern?.provider).toBe('anthropic');
   expect(modern?.cost?.cachedInputTokens).toBe(1000);

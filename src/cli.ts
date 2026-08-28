@@ -15,6 +15,8 @@ import { dedupeNewestValid, filterTaskRuns, scanWorkspaceRuns, type CaseInfoMap,
 import { buildAggregateData, type AggregateInitialState } from './visualization/aggregate/data.js';
 import { renderAggregateHtml } from './visualization/aggregate/render.js';
 import { renderAggregateCsv, renderAggregateJson } from './visualization/aggregate/csv.js';
+import { publishBatch, publishBatchStatus } from './results/public/publish.js';
+import type { PublicBatchValidity } from './results/public/types.js';
 
 interface ParsedArgs extends CliOverrides {
   command: string;
@@ -28,6 +30,11 @@ interface ParsedArgs extends CliOverrides {
   output?: string;
   batch?: string;
   statuses?: string[];
+  dryRun?: boolean;
+  validity?: PublicBatchValidity;
+  validityNote?: string;
+  supersededBy?: string;
+  allowUnfinalized?: boolean;
 }
 
 async function main(): Promise<void> {
@@ -48,6 +55,21 @@ async function main(): Promise<void> {
         ? 'managed (will refresh before run)'
         : 'managed (built automatically during run)';
     console.log(`Runtime image: ${runtimeImage}`);
+    return;
+  }
+
+  if (parsed.command === 'publish' || parsed.command === 'publish-status') {
+    if (!parsed.batch) throw new Error(`${parsed.command} requires --batch <batch-id>`);
+    const config = await loadHarnessConfig({ configPath: parsed.configPath });
+    if (!config.results.publish) throw new Error('Results publishing is not configured (add results.publish to harness-evals.yaml)');
+    if (parsed.command === 'publish-status') {
+      if (!parsed.validity) throw new Error('publish-status requires --validity');
+      await publishBatchStatus({ config: config.results.publish, batchId: parsed.batch, validity: parsed.validity, validityNote: parsed.validityNote, supersededBy: parsed.supersededBy, dryRun: parsed.dryRun });
+      console.log(parsed.dryRun ? `Validated publication status for ${parsed.batch} (dry run)` : `Updated publication status for ${parsed.batch}`);
+    } else {
+      const result = await publishBatch({ projectRoot: config.projectRoot, artifactRoot: config.artifactRoot, config: config.results.publish, batchId: parsed.batch, dryRun: parsed.dryRun, validity: parsed.validity, validityNote: parsed.validityNote, supersededBy: parsed.supersededBy, allowUnfinalized: parsed.allowUnfinalized });
+      console.log(result.dryRun ? `Validated batch ${parsed.batch} (dry run)` : `Published batch ${parsed.batch}${result.reportUrl ? `: ${result.reportUrl}` : ''}`);
+    }
     return;
   }
 
@@ -154,6 +176,24 @@ function parseArgs(argv: string[]): ParsedArgs {
         break;
       case '--status':
         parsed.statuses = readValue(argv, arg).split(',').map((value) => value.trim()).filter(Boolean);
+        break;
+      case '--dry-run':
+        parsed.dryRun = true;
+        break;
+      case '--validity': {
+        const value = readValue(argv, arg);
+        if (value !== 'valid' && value !== 'invalid' && value !== 'superseded') throw new Error('--validity must be valid, invalid, or superseded');
+        parsed.validity = value;
+        break;
+      }
+      case '--validity-note':
+        parsed.validityNote = readValue(argv, arg);
+        break;
+      case '--superseded-by':
+        parsed.supersededBy = readValue(argv, arg);
+        break;
+      case '--allow-unfinalized':
+        parsed.allowUnfinalized = true;
         break;
       case '--port':
         parsed.port = readPositiveInt(readValue(argv, arg), arg);
@@ -469,6 +509,8 @@ Commands:
   harness-evals view --run id | --latest [--open] [--port n]
   harness-evals export [--config path] --format html|json|csv --output path [--batch id|latest|all] [--agents a,b] [--suite name] [--case id] [--status s1,s2]
   harness-evals export --run id | --latest --format html|json|csv --output path
+  harness-evals publish --batch id [--config path] [--dry-run] [--validity valid|invalid|superseded] [--validity-note text] [--superseded-by id] [--allow-unfinalized]
+  harness-evals publish-status --batch id --validity valid|invalid|superseded [--config path] [--dry-run] [--validity-note text] [--superseded-by id]
 
 View / export:
   view (no --run/--latest) scans every run in the workspace into one

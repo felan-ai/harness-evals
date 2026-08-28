@@ -18,6 +18,8 @@ export interface ScannedTaskRun {
   batchSynthetic: boolean;
   caseId: string;
   agentName: string;
+  agentLabel?: string;
+  comparisonId?: string;
   suite?: string;
   description?: string;
   attemptNumber?: number;
@@ -29,6 +31,9 @@ export interface ScannedTaskRun {
   exitCode?: number | null;
   error?: string;
   score?: number;
+  assertionPassRate?: number;
+  judgeScore?: number;
+  verifierReward?: number;
   cost?: {
     totalCost?: number;
     currency?: string;
@@ -214,7 +219,14 @@ async function scanRunDir(
   const byProvider = isRecord(cost?.byProvider) ? cost?.byProvider : undefined;
   const byModel = isRecord(cost?.byModel) ? cost?.byModel : undefined;
   const models = byModel ? Object.keys(byModel) : undefined;
-  const score = isRecord(summary?.score) ? numberField(summary?.score.score) : undefined;
+  const scoreSummary = isRecord(summary?.score) ? summary.score : undefined;
+  const score = scoreSummary ? numberField(scoreSummary.score) : undefined;
+  const scoreBuckets = Array.isArray(scoreSummary?.buckets) ? scoreSummary.buckets.filter(isRecord) : [];
+  const metricScore = (type: string): number | undefined => {
+    const bucket = scoreBuckets.find((candidate) => candidate.type === type);
+    return bucket ? numberField(bucket.score) : undefined;
+  };
+  const startedAgent = isRecord(started?.agent) ? started.agent : undefined;
   const assertions = isRecord(summary?.assertions)
     ? {
       total: numberField(summary?.assertions.total) ?? 0,
@@ -230,6 +242,8 @@ async function scanRunDir(
     batchSynthetic: !explicitBatchId,
     caseId,
     agentName: stringField(summary?.agentName) ?? stringField(started?.agentName) ?? 'unknown-agent',
+    agentLabel: stringField(summary?.agentLabel) ?? stringField(startedAgent?.label),
+    comparisonId: stringField(summary?.comparisonId) ?? stringField(startedAgent?.comparisonId),
     suite: stringField(summary?.suite) ?? stringField(startedTestCase?.suite) ?? caseInfo?.[caseId]?.suite,
     description: stringField(summary?.description) ?? stringField(startedTestCase?.description) ?? caseInfo?.[caseId]?.description,
     attemptNumber: numberField(summary?.attemptNumber ?? started?.attemptNumber),
@@ -241,6 +255,9 @@ async function scanRunDir(
     exitCode: summary?.exitCode === null ? null : numberField(summary?.exitCode),
     error: stringField(summary?.error),
     score,
+    assertionPassRate: metricScore('assertionPassRate'),
+    judgeScore: metricScore('judgeScore'),
+    verifierReward: metricScore('verifierReward'),
     cost: cost
       ? {
         totalCost: numberField(cost.totalCost),

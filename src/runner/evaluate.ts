@@ -31,6 +31,7 @@ import { runVerifier, verifierSetupError } from '../verifier/run.js';
 import { shouldCaptureModelPatch, type HiddenPatchResult, type ModelPatchArtifact, type VerifierRunResult } from '../verifier/types.js';
 import { buildRunDir } from './artifacts.js';
 import { createBatchInfo, type BatchInfo } from './batch.js';
+import { writeCompletedBatchRecord, writeRunningBatchRecord } from './batch-record.js';
 import { buildMatrix } from './matrix.js';
 import type { HarnessRunResult, PassAtKSummary, ScenarioRunContext, ScenarioRunStatus, ScenarioStepResult, ScenarioStepStatus, TestRunResult } from './result.js';
 
@@ -76,6 +77,7 @@ export async function runHarness(options: RunHarnessOptions = {}): Promise<Harne
     caseCount: new Set(matrix.map((entry) => entry.testCase.id)).size,
     runCount: matrix.length,
   });
+  await writeRunningBatchRecord({ projectRoot: config.projectRoot, batch, expectedRunCount: matrix.length });
   const results = await mapConcurrent(matrix, concurrency, (entry) => runTestCase(
     config,
     entry,
@@ -88,6 +90,12 @@ export async function runHarness(options: RunHarnessOptions = {}): Promise<Harne
     batch,
     cleanup,
   ));
+  await writeCompletedBatchRecord({
+    projectRoot: config.projectRoot,
+    batch,
+    expectedRunCount: matrix.length,
+    runIds: results.map((result) => result.runId),
+  });
   const cost = buildHarnessCostSummary(results);
   const passAtK = buildPassAtKSummary(results);
   const outputPath = await writeHarnessSummary(config, outputRegistry, registry, matrix, results, cost, passAtK, batch);
@@ -168,6 +176,7 @@ export async function runTestCase(
         agent: {
           adapter: entry.agent.adapter,
           label: entry.agent.label,
+          comparisonId: entry.agent.comparisonId,
           model: entry.agent.model,
           provider: entry.agent.provider,
         },
@@ -1032,6 +1041,8 @@ function buildTestRunResult(input: {
       caseId: input.entry.testCase.id,
       scenarioId: input.context.scenarioId,
       agentName: input.entry.agentName,
+      agentLabel: input.entry.agent.label,
+      comparisonId: input.entry.agent.comparisonId,
       runId: input.context.runId,
       runDir: input.context.runDir,
       status,
@@ -1120,6 +1131,8 @@ function buildSetupErrorResult(
       caseId: entry.testCase.id,
       scenarioId: entry.testCase.id,
       agentName: entry.agentName,
+      agentLabel: entry.agent.label,
+      comparisonId: entry.agent.comparisonId,
       runId,
       runDir,
       status: 'error',
@@ -1419,6 +1432,8 @@ function buildRunSummary(result: TestRunResult, dispatcher: OutputDispatcher, ba
     caseId: result.caseId,
     scenarioId: result.scenarioId,
     agentName: result.agentName,
+    agentLabel: readString(result.metadata.agentLabel),
+    comparisonId: readString(result.metadata.comparisonId),
     batchId: batch?.batchId,
     suite: result.suite,
     description: result.description,

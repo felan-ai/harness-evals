@@ -22,6 +22,9 @@ import type {
   OutputConfig,
   OutputProviderConfig,
   ProjectScoringConfig,
+  ResultsConfig,
+  ResultsPublishConfig,
+  ResultsStoreConfig,
   ScoreType,
   TestCase,
   TestCaseMockConfig,
@@ -47,6 +50,7 @@ const SCORE_TARGETS = new Set(['maximize', 'minimize']);
 const JUDGE_INPUT_REFS = new Set(['finalOutput', 'stdout', 'stderr', 'events', 'toolCalls', 'mockCalls', 'assertions', 'workspaceDiff', 'cost']);
 const VERIFIER_REWARD_FORMATS = new Set<VerifierRewardFormat>(['auto', 'json', 'text']);
 const NETWORK_POLICY_MODES = new Set<NetworkPolicyConfig['mode']>(['default', 'none', 'allowlist']);
+const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const BASE_ASSERTION_KEYS = ['id', 'type', 'required', 'when'] as const;
 const ASSERTION_KEYS: Record<string, readonly string[]> = {
@@ -129,6 +133,7 @@ function readHarnessConfig(value: unknown): HarnessConfigOverride {
     visualization: readVisualizationConfig(value.visualization),
     judge: readJudgeDefaults(value.judge),
     scoring: readScoringConfig(value.scoring),
+    results: readResultsConfig(value.results),
   };
 }
 
@@ -155,9 +160,72 @@ function normalizeHarnessConfig(config: HarnessConfig, projectRoot: string): Har
     output: {
       providers: outputProviders,
     },
+    results: normalizeResultsConfig(config.results, projectRoot),
     agents: resolveAgentExtends(config.agents),
     tests: [...config.tests],
   };
+}
+
+function readResultsConfig(value: unknown): Partial<ResultsConfig> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value)) throw new Error('results must be an object');
+  assertKnownKeys(value, ['publish'], 'results');
+  if (value.publish === undefined || value.publish === null) return {};
+  if (!isRecord(value.publish)) throw new Error('results.publish must be an object');
+  assertKnownKeys(value.publish, ['store', 'prefix', 'publicBaseUrl'], 'results.publish');
+  const prefix = readOptionalString(value.publish.prefix, 'results.publish.prefix');
+  if (!prefix) throw new Error('results.publish.prefix is required');
+  validateArchivePrefix(prefix);
+  const store = readResultsStore(value.publish.store);
+  return {
+    publish: {
+      store,
+      prefix,
+      publicBaseUrl: readOptionalPublicBaseUrl(value.publish.publicBaseUrl),
+    },
+  };
+}
+
+function readResultsStore(value: unknown): ResultsStoreConfig {
+  if (!isRecord(value)) throw new Error('results.publish.store must be an object');
+  assertKnownKeys(value, ['type', 'root'], 'results.publish.store');
+  const type = readOptionalString(value.type, 'results.publish.store.type');
+  if (type !== 'file') throw new Error('results.publish.store.type must be file');
+  const root = readOptionalString(value.root, 'results.publish.store.root');
+  if (!root) throw new Error('results.publish.store.root is required');
+  if (root.startsWith('/') || root.startsWith('~') || hasTraversalSegment(root)) {
+    throw new Error('results.publish.store.root must be project-relative and may not contain path traversal');
+  }
+  return { type, root };
+}
+
+function normalizeResultsConfig(config: ResultsConfig, projectRoot: string): ResultsConfig {
+  if (!config.publish) return {};
+  const store = config.publish.store;
+  return {
+    publish: {
+      ...config.publish,
+      store: {
+        ...store,
+        root: resolveProjectPath(projectRoot, store.root, 'results.publish.store.root'),
+      },
+    },
+  };
+}
+
+function validateArchivePrefix(prefix: string): void {
+  if (prefix.includes('\\') || prefix.startsWith('/') || prefix.endsWith('/') || prefix.split('/').some((part) => !part || part === '.' || part === '..')) {
+    throw new Error(`results.publish.prefix must be a safe relative path: ${prefix}`);
+  }
+}
+
+function readOptionalPublicBaseUrl(value: unknown): string | undefined {
+  const url = readOptionalString(value, 'results.publish.publicBaseUrl');
+  if (!url) return undefined;
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { throw new Error('results.publish.publicBaseUrl must be an absolute http(s) URL'); }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('results.publish.publicBaseUrl must be an absolute http(s) URL');
+  return url.replace(/\/+$/, '');
 }
 
 function readAgents(value: unknown): Record<string, AgentConfig> | undefined {
@@ -187,6 +255,7 @@ function readAgentFields(raw: Record<string, unknown>, field: string): Partial<A
   return {
     extends: readOptionalString(raw.extends, `${field}.extends`),
     label: readOptionalString(raw.label, `${field}.label`),
+    comparisonId: readComparisonId(raw.comparisonId, `${field}.comparisonId`),
     command: readOptionalString(raw.command, `${field}.command`),
     args: readOptionalStringArray(raw.args, `${field}.args`),
     cwd: readOptionalString(raw.cwd, `${field}.cwd`),
@@ -208,6 +277,17 @@ function readAgentFields(raw: Record<string, unknown>, field: string): Partial<A
     config: readOptionalRecord(raw.config, `${field}.config`),
     parser: readOptionalString(raw.parser, `${field}.parser`),
   };
+}
+
+function readComparisonId(value: unknown, field: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string') throw new Error(`${field} must be a string`);
+  const id = value.trim();
+  if (!id) throw new Error(`${field} must not be empty`);
+  if (id === '.' || id === '..' || id.length > 64 || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
+    throw new Error(`${field} must use 1-64 letters, numbers, dots, underscores, or hyphens and start with a letter or number`);
+  }
+  return id;
 }
 
 function readAgentAuthConfig(value: unknown, field: string): AgentAuthConfig | undefined {

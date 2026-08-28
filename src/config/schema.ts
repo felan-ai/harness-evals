@@ -62,6 +62,8 @@ export interface AgentConfig {
   adapter: string;
   extends?: string;
   label?: string;
+  /** Stable public identity for comparing an effective profile across runs and config roots. */
+  comparisonId?: string;
   command?: string;
   args?: string[];
   cwd?: string;
@@ -136,6 +138,21 @@ export interface OutputProviderConfig {
 
 export interface OutputConfig {
   providers: OutputProviderConfig[];
+}
+
+export interface ResultsStoreConfig {
+  type: 'file';
+  root: string;
+}
+
+export interface ResultsPublishConfig {
+  store: ResultsStoreConfig;
+  prefix: string;
+  publicBaseUrl?: string;
+}
+
+export interface ResultsConfig {
+  publish?: ResultsPublishConfig;
 }
 
 export type VisualizationFormat = 'html' | 'json' | 'csv';
@@ -261,6 +278,7 @@ export interface HarnessConfig {
   adapters: Record<string, AdapterDeclaration>;
   mocks: MockConfig;
   output: OutputConfig;
+  results: ResultsConfig;
   visualization: VisualizationConfig;
   judge?: JudgeDefaults;
   scoring: ProjectScoringConfig;
@@ -339,6 +357,7 @@ export const DEFAULT_HARNESS_CONFIG: HarnessConfig = {
   output: {
     providers: [{ type: 'file' }],
   },
+  results: {},
   visualization: {
     enabled: true,
     formats: ['html', 'json', 'csv'],

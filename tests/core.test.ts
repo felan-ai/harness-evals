@@ -77,6 +77,60 @@ assert: []
   expect(matrix[0].agent.config).toEqual({ a: 1, b: 2 });
 });
 
+test('agent comparisonId is stable through extends and replaceable by case overrides', async () => {
+  const root = await tempRoot();
+  await mkdir(join(root, 'cases'));
+  await writeFile(join(root, 'harness-evals.yaml'), `
+version: 1
+agents:
+  base:
+    adapter: command
+    command: echo
+    comparisonId: felan-full
+  child:
+    extends: base
+tests:
+  - cases/*.yaml
+`);
+  await writeFile(join(root, 'cases', 'case.yaml'), `
+id: comparison
+prompt: hi
+agents:
+  include: [base, child]
+  overrides:
+    child:
+      comparisonId: felan-full-experimental
+assert: []
+`);
+
+  const config = await loadHarnessConfig({ cwd: root });
+  const matrix = buildMatrix(config);
+
+  expect(config.agents.base.comparisonId).toBe('felan-full');
+  expect(config.agents.child.comparisonId).toBe('felan-full');
+  expect(matrix.map((entry) => entry.agent.comparisonId)).toEqual(['felan-full', 'felan-full-experimental']);
+
+  await writeFile(join(root, 'harness-evals.yaml'), `
+version: 1
+agents:
+  bad:
+    adapter: command
+    comparisonId: ../private
+tests: []
+`);
+  await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow('agents.bad.comparisonId must use 1-64');
+
+  await writeFile(join(root, 'harness-evals.yaml'), `
+version: 1
+agents:
+  bad:
+    adapter: command
+    comparisonId: " "
+tests: []
+`);
+  await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow('agents.bad.comparisonId must not be empty');
+});
+
 test('workspace setup commands load and case commands replace project defaults', async () => {
   const root = await tempRoot();
   await mkdir(join(root, 'cases'));

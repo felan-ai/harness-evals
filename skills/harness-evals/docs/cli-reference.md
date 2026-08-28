@@ -150,3 +150,49 @@ Managed image behavior:
 - There is no separate Docker build workflow to run first.
 
 If you call the `docker` command directly, the CLI fails with guidance to use `run` and either let managed builds happen automatically or supply `docker.image` / `--image`.
+
+## Publish a public batch archive
+
+Publication is explicit and separate from `run`, `view`, and `export`:
+
+```bash
+harness-evals publish --batch <batch-id> [--config path] [--dry-run]
+harness-evals publish-status --batch <batch-id> --validity valid|invalid|superseded [--dry-run]
+```
+
+Configure the filesystem publisher with:
+
+```yaml
+results:
+  publish:
+    store:
+      type: file
+      root: .harness-evals/public-results
+    prefix: harness-evals-results
+    publicBaseUrl: https://results.example.com/harness-evals-results/v1
+```
+
+`publish` reads only compact `summary.json` and `run-started.json` files. It
+publishes a summary manifest, HTML report, CSV, and root catalog. It never
+uploads transcripts, logs, workspaces, credentials, raw results, or local
+paths. `--dry-run` validates and renders without writing files. A completed
+local batch record is required; use `--allow-unfinalized` only with
+`--validity invalid` and a non-empty `--validity-note`.
+
+`publish-status` changes only the catalog validity metadata and requires that
+the batch was already published. Pass `--dry-run` to validate a reclassification
+without updating the catalog. Batch objects remain immutable. The storage
+interface is provider-neutral; a cloud backend can be added later without
+changing published archive paths.
+
+The public archive root is an aggregate dashboard rather than a batch list.
+It fetches the selected compact manifests and supports:
+
+- **Latest results** — union batches and keep the newest result for each
+  case/agent pair.
+- **All runs / attempts** — retain every published run so repeated executions
+  can be compared as attempts.
+
+Suite, case, agent, validity, and status filters apply across the selected
+batches. Individual immutable batch reports remain available from their
+stable URLs.

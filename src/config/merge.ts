@@ -6,6 +6,8 @@ import {
   type MockConfig,
   type OutputConfig,
   type ProjectScoringConfig,
+  type ResultsConfig,
+  type ResultsPublishConfig,
   type VisualizationConfig,
   type WorkspaceConfig,
   type WorkspaceSetupCommand,
@@ -13,7 +15,7 @@ import {
 
 type VisualizationConfigOverride = Omit<Partial<VisualizationConfig>, 'include'> & { include?: Partial<VisualizationConfig['include']> };
 
-export interface HarnessConfigOverride extends Omit<Partial<HarnessConfig>, 'workspace' | 'docker' | 'agents' | 'tests' | 'mocks' | 'output' | 'visualization' | 'scoring'> {
+export interface HarnessConfigOverride extends Omit<Partial<HarnessConfig>, 'workspace' | 'docker' | 'agents' | 'tests' | 'mocks' | 'output' | 'visualization' | 'scoring' | 'results'> {
   workspace?: Partial<WorkspaceConfig>;
   docker?: Partial<DockerConfig>;
   agents?: Record<string, AgentConfig>;
@@ -22,6 +24,7 @@ export interface HarnessConfigOverride extends Omit<Partial<HarnessConfig>, 'wor
   output?: Partial<OutputConfig>;
   visualization?: VisualizationConfigOverride;
   scoring?: ProjectScoringConfig;
+  results?: ResultsConfig;
 }
 
 export function mergeHarnessConfig(base: HarnessConfig, override: HarnessConfigOverride): HarnessConfig {
@@ -37,6 +40,7 @@ export function mergeHarnessConfig(base: HarnessConfig, override: HarnessConfigO
     output: mergeOutputConfig(base.output, override.output),
     visualization: mergeVisualizationConfig(base.visualization, override.visualization),
     scoring: mergeScoringConfig(base.scoring, override.scoring),
+    results: mergeResultsConfig(base.results, override.results),
   };
 }
 
@@ -169,6 +173,21 @@ function mergeScoringConfig(base: ProjectScoringConfig, override?: ProjectScorin
     merged[key] = { ...(base[key] ?? {}), ...(override[key] ?? {}) } as ProjectScoringConfig[typeof key];
   }
   return merged;
+}
+
+function mergeResultsConfig(base: ResultsConfig, override?: ResultsConfig): ResultsConfig {
+  if (!override) return cloneResultsConfig(base);
+  return {
+    publish: override.publish
+      ? { ...base.publish, ...override.publish, store: { ...(base.publish?.store ?? {}), ...override.publish.store } }
+      : base.publish ? { ...base.publish, store: { ...base.publish.store } } : undefined,
+  };
+}
+
+function cloneResultsConfig(config: ResultsConfig): ResultsConfig {
+  return config.publish
+    ? { publish: { ...config.publish, store: { ...config.publish.store } } }
+    : {};
 }
 
 function mergeRecord<T>(base: Record<string, T>, override?: Record<string, T>): Record<string, T> {

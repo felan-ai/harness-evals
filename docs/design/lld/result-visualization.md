@@ -1,7 +1,7 @@
 # LLD — Result Visualization
 
 > **HLD:** `../HDL.md`
-> **Companion LLDs:** `agent-first-install-and-config.md`, `scenario-runner.md`, `adapter-registry-and-contract.md`, `managed-images.md`, `validation-scoring-and-judging.md`, `cost-and-artifacts.md`, `output-providers.md`, `mock-mcps-and-clis.md`
+> **Companion LLDs:** `agent-first-install-and-config.md`, `scenario-runner.md`, `adapter-registry-and-contract.md`, `managed-images.md`, `validation-scoring-and-judging.md`, `cost-and-artifacts.md`, `output-providers.md`, `mock-mcps-and-clis.md`, `public-results-archive.md`
 > **Status:** Draft
 
 ## How this fits
@@ -27,6 +27,11 @@ status, score, duration, requests, token usage, cost, assertions, result, and
 actions as metric rows. The workspace aggregate HTML retains its cross-case
 agent/model matrix. Both summarize pass/fail/error, score, duration, cost,
 token usage, assertion failures, and links to details.
+
+Public archive reports use a separate case-centric layout: suites contain
+cases, and each case shows only the comparison identities that participated in
+that case. An agent profile may use an authored `comparisonId` to remain
+stable across batches even when its technical name or display label changes.
 
 ## 2. Data Model / Contracts
 
