@@ -1,13 +1,15 @@
 import { mergeAgentConfig, mergeDockerConfig, mergeWorkspaceConfig } from '../config/merge.js';
 import type { AgentConfig, CliOverrides, LoadedHarnessConfig, MatrixEntry, TestCase } from '../config/schema.js';
+import { resolveBenchmarkSelection } from '../benchmarks/select.js';
 
 export function buildMatrix(config: LoadedHarnessConfig, cli: CliOverrides = {}): MatrixEntry[] {
   const entries: MatrixEntry[] = [];
-  const selectedTests = filterTests(config.testCases, cli);
+  const benchmark = cli.benchmarkId ? resolveBenchmarkSelection(config, cli.benchmarkId, cli) : undefined;
+  const selectedTests = benchmark?.testCases ?? filterTests(config.testCases, cli);
 
   for (const testCase of selectedTests) {
-    const agentNames = selectAgents(Object.keys(config.agents), testCase, cli);
-    const attempts = cli.attempts ?? testCase.attempts ?? 1;
+    const agentNames = benchmark?.agentNames ?? selectAgents(Object.keys(config.agents), testCase, cli);
+    const attempts = benchmark?.definition.trials ?? cli.attempts ?? testCase.attempts ?? 1;
     if (!Number.isInteger(attempts) || attempts < 1) throw new Error('attempts must be a positive integer');
     for (const agentName of agentNames) {
       const baseAgent = config.agents[agentName];
@@ -22,7 +24,17 @@ export function buildMatrix(config: LoadedHarnessConfig, cli: CliOverrides = {})
       };
       const docker = mergeDockerConfig(config.docker, Object.keys(dockerOverride).length ? dockerOverride : undefined);
       for (let attemptIndex = 0; attemptIndex < attempts; attemptIndex++) {
-        entries.push({ testCase, agentName, agent, workspace, docker, attemptIndex, attemptNumber: attemptIndex + 1, attempts });
+        entries.push({
+          testCase,
+          agentName,
+          agent,
+          workspace,
+          docker,
+          attemptIndex,
+          attemptNumber: attemptIndex + 1,
+          attempts,
+          benchmark: benchmark ? { id: benchmark.id, revision: benchmark.definition.revision, digest: benchmark.digest } : undefined,
+        });
       }
     }
   }

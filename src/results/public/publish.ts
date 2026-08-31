@@ -1,4 +1,4 @@
-import type { ResultsPublishConfig } from '../../config/schema.js';
+import type { BenchmarkDefinition, ResultsPublishConfig } from '../../config/schema.js';
 import { readLocalBatchRecord } from '../../runner/batch-record.js';
 import { scanWorkspaceRuns } from '../../visualization/scan.js';
 import { FilePublicResultsStore } from './stores/file.js';
@@ -7,6 +7,8 @@ import { renderPublicBatchCsv } from './render-csv.js';
 import { renderPublicBatchHtml, renderPublicIndexHtml } from './render-html.js';
 import type { PublicBatchIndexEntry, PublicBatchValidity, PublicResultsIndex, PublicResultsStore } from './types.js';
 import { validatePublicObjectKey } from './stores/keys.js';
+import { analyzeBenchmark } from '../../benchmarks/analyze.js';
+import { renderBenchmarkCsv, renderBenchmarkHtml, renderBenchmarkJson } from '../../benchmarks/render.js';
 
 const enc = new TextEncoder();
 const text = new TextDecoder();
@@ -23,6 +25,7 @@ export interface PublishOptions {
   validityNote?: string;
   supersededBy?: string;
   allowUnfinalized?: boolean;
+  benchmarks?: Record<string, BenchmarkDefinition>;
 }
 
 export interface PublishResult {
@@ -67,6 +70,17 @@ export async function publishBatch(options: PublishOptions): Promise<PublishResu
     html: enc.encode(renderPublicBatchHtml(manifest)),
     csv: enc.encode(renderPublicBatchCsv(manifest)),
   };
+  const benchmarkObjects = Object.entries(options.benchmarks ?? {}).flatMap(([id, definition]) => {
+    const selectedRuns = runs.filter((run) =>
+      (definition.select.cases?.includes(run.caseId) || (run.suite && definition.select.suites?.includes(run.suite)))
+      && [definition.arms.baseline, definition.arms.candidate].includes(run.agentName));
+    if (selectedRuns.length === 0) return [];
+    const report = analyzeBenchmark({ id, definition, runs: selectedRuns, cases: [...new Set(selectedRuns.map((run) => run.caseId))].sort() });
+    const base = `${root}/batches/${options.batchId}/benchmarks/${id}`;
+    const paths = { json: `${base}/results.json`, html: `${base}/results.html`, csv: `${base}/results.csv` };
+    Object.values(paths).forEach((path) => validatePublicObjectKey(path));
+    return [{ id, report, paths }];
+  });
   const store = options.store ?? createConfiguredStore(options.config);
   const old = await readIndex(store, paths.index);
   const previous = old.batches.find((entry) => entry.batchId === options.batchId);
@@ -79,12 +93,19 @@ export async function publishBatch(options: PublishOptions): Promise<PublishResu
     ...(options.supersededBy !== undefined ? { supersededBy: options.supersededBy } : previous?.supersededBy !== undefined ? { supersededBy: previous.supersededBy } : {}),
     suites: manifest.suites, cases: manifest.cases, agents: manifest.agents, totals: manifest.totals,
     manifestPath: `batches/${options.batchId}/manifest.json`, reportPath: `batches/${options.batchId}/results.html`, csvPath: `batches/${options.batchId}/results.csv`,
+    ...(benchmarkObjects.length > 0 ? { benchmarkPaths: Object.fromEntries(benchmarkObjects.map((item) => [item.id, { jsonPath: item.paths.json.slice(`${root}/`.length), reportPath: item.paths.html.slice(`${root}/`.length), csvPath: item.paths.csv.slice(`${root}/`.length) }])) } : {}),
   };
   if (options.dryRun) return { batchId: options.batchId, dryRun: true, entry };
   await putImmutable(store, paths.manifest, bytes.manifest, 'application/json; charset=utf-8');
   await putImmutable(store, paths.html, bytes.html, 'text/html; charset=utf-8');
   await putImmutable(store, paths.csv, bytes.csv, 'text/csv; charset=utf-8');
-  const next: PublicResultsIndex = sortIndex({ schemaVersion: 1, updatedAt: new Date().toISOString(), batches: [...old.batches.filter((item) => item.batchId !== options.batchId), entry] });
+  for (const item of benchmarkObjects) {
+    await putImmutable(store, item.paths.json, enc.encode(renderBenchmarkJson(item.report)), 'application/json; charset=utf-8');
+    await putImmutable(store, item.paths.html, enc.encode(renderBenchmarkHtml(item.report)), 'text/html; charset=utf-8');
+    await putImmutable(store, item.paths.csv, enc.encode(renderBenchmarkCsv(item.report)), 'text/csv; charset=utf-8');
+  }
+  const benchmarkEntries = benchmarkObjects.map((item) => ({ id: item.id, label: item.report.definition.label, batchId: options.batchId, jsonPath: item.paths.json.slice(`${options.config.prefix}/v1/`.length), reportPath: item.paths.html.slice(`${options.config.prefix}/v1/`.length), csvPath: item.paths.csv.slice(`${options.config.prefix}/v1/`.length) }));
+  const next: PublicResultsIndex = sortIndex({ schemaVersion: 1, updatedAt: new Date().toISOString(), batches: [...old.batches.filter((item) => item.batchId !== options.batchId), entry], ...(benchmarkEntries.length > 0 ? { benchmarks: [...(old.benchmarks ?? []).filter((item) => item.batchId !== options.batchId), ...benchmarkEntries] } : old.benchmarks ? { benchmarks: old.benchmarks } : {}) });
   await store.put(paths.indexHtml, enc.encode(renderPublicIndexHtml()), { contentType: 'text/html; charset=utf-8', cacheControl: 'no-cache' });
   await store.put(paths.index, enc.encode(`${JSON.stringify(next, null, 2)}\n`), { contentType: 'application/json; charset=utf-8', cacheControl: 'no-cache' });
   return { batchId: options.batchId, dryRun: false, entry, reportUrl: options.config.publicBaseUrl ? `${options.config.publicBaseUrl}/batches/${options.batchId}/results.html` : undefined };

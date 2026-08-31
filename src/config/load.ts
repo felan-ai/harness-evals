@@ -13,6 +13,11 @@ import type {
   AgentsSelection,
   AssertionCondition,
   AssertionConfig,
+  BenchmarkAggregation,
+  BenchmarkDefinition,
+  BenchmarkGoal,
+  BenchmarkQualityGate,
+  BenchmarkTrialReducer,
   HarnessConfig,
   JudgeAssertionDefinition,
   JudgeDefaults,
@@ -50,6 +55,9 @@ const SCORE_TARGETS = new Set(['maximize', 'minimize']);
 const JUDGE_INPUT_REFS = new Set(['finalOutput', 'stdout', 'stderr', 'events', 'toolCalls', 'mockCalls', 'assertions', 'workspaceDiff', 'cost']);
 const VERIFIER_REWARD_FORMATS = new Set<VerifierRewardFormat>(['auto', 'json', 'text']);
 const NETWORK_POLICY_MODES = new Set<NetworkPolicyConfig['mode']>(['default', 'none', 'allowlist']);
+const BENCHMARK_GOALS = new Set<BenchmarkGoal>(['minimize', 'maximize']);
+const BENCHMARK_TRIAL_REDUCERS = new Set<BenchmarkTrialReducer>(['median', 'mean']);
+const BENCHMARK_METRIC_PATTERN = /^[a-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+$/;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const BASE_ASSERTION_KEYS = ['id', 'type', 'required', 'when'] as const;
@@ -79,6 +87,7 @@ export async function loadHarnessConfig(options: LoadHarnessConfigOptions = {}):
   const testCases = await loadTestCases(config.tests, projectRoot, config.mocks);
   validateExplicitJudgeConfig(testCases, config.judge);
   validateAssertionConditions(testCases, config.agents);
+  validateBenchmarkReferences(config.benchmarks, testCases, config.agents);
 
   return {
     ...config,
@@ -134,7 +143,144 @@ function readHarnessConfig(value: unknown): HarnessConfigOverride {
     judge: readJudgeDefaults(value.judge),
     scoring: readScoringConfig(value.scoring),
     results: readResultsConfig(value.results),
+    benchmarks: readBenchmarks(value.benchmarks),
   };
+}
+
+function readBenchmarks(value: unknown): Record<string, BenchmarkDefinition> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value)) throw new Error('benchmarks must be an object');
+  const benchmarks: Record<string, BenchmarkDefinition> = {};
+  for (const [id, raw] of Object.entries(value)) {
+    readComparisonId(id, `benchmarks.${id}`);
+    if (!isRecord(raw)) throw new Error(`benchmarks.${id} must be an object`);
+    const field = `benchmarks.${id}`;
+    assertKnownKeys(raw, ['revision', 'label', 'description', 'select', 'arms', 'trials', 'qualityGates', 'objective', 'aggregation', 'secondaryMetrics'], field);
+    benchmarks[id] = {
+      revision: readOptionalPositiveInteger(raw.revision, `${field}.revision`) ?? 1,
+      label: readRequiredString(raw.label, `${field}.label`),
+      description: readOptionalString(raw.description, `${field}.description`),
+      select: readBenchmarkSelector(raw.select, `${field}.select`),
+      arms: readBenchmarkArms(raw.arms, `${field}.arms`),
+      trials: readOptionalPositiveInteger(raw.trials, `${field}.trials`) ?? 1,
+      qualityGates: readBenchmarkQualityGates(raw.qualityGates, `${field}.qualityGates`),
+      objective: readBenchmarkObjective(raw.objective, `${field}.objective`),
+      aggregation: readBenchmarkAggregation(raw.aggregation, `${field}.aggregation`),
+      secondaryMetrics: readMetricNames(raw.secondaryMetrics, `${field}.secondaryMetrics`),
+    };
+  }
+  return benchmarks;
+}
+
+function readBenchmarkSelector(value: unknown, field: string): BenchmarkDefinition['select'] {
+  if (!isRecord(value)) throw new Error(`${field} must be an object`);
+  assertKnownKeys(value, ['suites', 'cases'], field);
+  const suites = readOptionalStringArray(value.suites, `${field}.suites`);
+  const cases = readOptionalStringArray(value.cases, `${field}.cases`);
+  if (!suites?.length && !cases?.length) throw new Error(`${field} must include at least one suite or case`);
+  assertUniqueNonEmpty(suites, `${field}.suites`);
+  assertUniqueNonEmpty(cases, `${field}.cases`);
+  return { suites, cases };
+}
+
+function readBenchmarkArms(value: unknown, field: string): BenchmarkDefinition['arms'] {
+  if (!isRecord(value)) throw new Error(`${field} must be an object`);
+  assertKnownKeys(value, ['baseline', 'candidate'], field);
+  const baseline = readRequiredString(value.baseline, `${field}.baseline`);
+  const candidate = readRequiredString(value.candidate, `${field}.candidate`);
+  if (candidate === baseline) throw new Error(`${field}.baseline and ${field}.candidate must be different`);
+  return { baseline, candidate };
+}
+
+function readBenchmarkObjective(value: unknown, field: string): BenchmarkDefinition['objective'] {
+  if (!isRecord(value)) throw new Error(`${field} must be an object`);
+  assertKnownKeys(value, ['metric', 'goal'], field);
+  const goal = readRequiredString(value.goal, `${field}.goal`);
+  if (!BENCHMARK_GOALS.has(goal as BenchmarkGoal)) throw new Error(`${field}.goal must be minimize or maximize`);
+  return { metric: readMetricName(value.metric, `${field}.metric`), goal: goal as BenchmarkGoal };
+}
+
+function readBenchmarkQualityGates(value: unknown, field: string): BenchmarkQualityGate[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
+  return value.map((entry, index) => {
+    const itemField = `${field}[${index}]`;
+    if (!isRecord(entry)) throw new Error(`${itemField} must be an object`);
+    assertKnownKeys(entry, ['metric', 'min', 'max'], itemField);
+    const min = readOptionalNumber(entry.min, `${itemField}.min`);
+    const max = readOptionalNumber(entry.max, `${itemField}.max`);
+    if (min === undefined && max === undefined) throw new Error(`${itemField} requires min or max`);
+    if (min !== undefined && max !== undefined && min > max) throw new Error(`${itemField}.min must not exceed max`);
+    return { metric: readMetricName(entry.metric, `${itemField}.metric`), min, max };
+  });
+}
+
+function readBenchmarkAggregation(value: unknown, field: string): BenchmarkAggregation {
+  if (value === undefined || value === null) return { trials: 'median', cases: 'macroMean' };
+  if (!isRecord(value)) throw new Error(`${field} must be an object`);
+  assertKnownKeys(value, ['trials', 'cases'], field);
+  const trials = readOptionalString(value.trials, `${field}.trials`) ?? 'median';
+  if (!BENCHMARK_TRIAL_REDUCERS.has(trials as BenchmarkTrialReducer)) throw new Error(`${field}.trials must be median or mean`);
+  const cases = readOptionalString(value.cases, `${field}.cases`) ?? 'macroMean';
+  if (cases !== 'macroMean') throw new Error(`${field}.cases must be macroMean`);
+  return { trials: trials as BenchmarkTrialReducer, cases: 'macroMean' };
+}
+
+function readMetricNames(value: unknown, field: string): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
+  const metrics = value.map((entry, index) => readMetricName(entry, `${field}[${index}]`));
+  assertUniqueNonEmpty(metrics, field);
+  return metrics;
+}
+
+function readMetricName(value: unknown, field: string): string {
+  const metric = readRequiredString(value, field);
+  if (!BENCHMARK_METRIC_PATTERN.test(metric)) throw new Error(`${field} must be a dotted metric name`);
+  return metric;
+}
+
+function validateBenchmarkReferences(
+  benchmarks: Record<string, BenchmarkDefinition>,
+  testCases: TestCase[],
+  agents: Record<string, AgentConfig>,
+): void {
+  const caseIds = new Set(testCases.map((testCase) => testCase.id));
+  const suites = new Set(testCases.map((testCase) => testCase.suite).filter((suite): suite is string => Boolean(suite)));
+  for (const [id, benchmark] of Object.entries(benchmarks)) {
+    for (const suite of benchmark.select.suites ?? []) {
+      if (!suites.has(suite)) throw new Error(`benchmarks.${id}.select.suites references unknown suite: ${suite}`);
+    }
+    for (const caseId of benchmark.select.cases ?? []) {
+      if (!caseIds.has(caseId)) throw new Error(`benchmarks.${id}.select.cases references unknown case: ${caseId}`);
+    }
+    const selected = testCases.filter((testCase) =>
+      benchmark.select.cases?.includes(testCase.id) || (testCase.suite && benchmark.select.suites?.includes(testCase.suite)));
+    if (selected.length === 0) throw new Error(`benchmarks.${id} selects no cases`);
+    const armNames = [benchmark.arms.baseline, benchmark.arms.candidate];
+    for (const agentName of armNames) {
+      if (!agents[agentName]) throw new Error(`benchmarks.${id}.arms references unknown agent: ${agentName}`);
+    }
+    const comparisonIds = armNames.map((agentName) => agents[agentName].comparisonId ?? agentName);
+    if (new Set(comparisonIds).size !== comparisonIds.length) {
+      throw new Error(`benchmarks.${id}.arms must resolve to distinct comparisonId values`);
+    }
+    if (benchmark.secondaryMetrics.includes(benchmark.objective.metric)) {
+      throw new Error(`benchmarks.${id}.secondaryMetrics must not repeat the objective metric`);
+    }
+  }
+}
+
+function assertUniqueNonEmpty(values: string[] | undefined, field: string): void {
+  if (!values) return;
+  if (values.some((value) => !value.trim())) throw new Error(`${field} must contain non-empty strings`);
+  if (new Set(values).size !== values.length) throw new Error(`${field} must not contain duplicates`);
+}
+
+function readRequiredString(value: unknown, field: string): string {
+  const result = readOptionalString(value, field);
+  if (!result) throw new Error(`${field} is required`);
+  return result;
 }
 
 function normalizeHarnessConfig(config: HarnessConfig, projectRoot: string): HarnessConfig {

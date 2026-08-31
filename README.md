@@ -37,6 +37,20 @@ harness-evals run --case <case-id> --agents <agent-name>
 harness-evals view --open
 ```
 
+For controlled comparisons, declare a root-level `benchmarks` entry, then run
+and inspect its exact case/arm/trial matrix:
+
+```bash
+harness-evals list --benchmark <id>
+harness-evals run --benchmark <id>
+harness-evals view --benchmark <id>
+harness-evals view --benchmark all
+```
+
+Benchmark objectives and quality gates are independent from the weighted
+`scoring` summary. Reports preserve every trial, reduce trials within each
+case, and compare candidate values with the declared baseline.
+
 `harness-evals` runs coding agents in Docker. If `docker.image` is set, that ready image is used directly. Otherwise the harness builds and reuses a local managed image from the selected adapters' installation recipes.
 
 Refresh a managed image when upstream packages or the Docker base image changed but the install manifest did not:

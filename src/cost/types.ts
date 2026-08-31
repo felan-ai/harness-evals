@@ -2,6 +2,10 @@ export interface UsageReport {
   provider: string;
   model: string;
   inputTokens?: number;
+  promptTokens?: number;
+  uncachedInputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheWriteInputTokens?: number;
   outputTokens?: number;
   cachedInputTokens?: number;
   reasoningTokens?: number;
@@ -17,6 +21,10 @@ export interface CostRollup {
   currency?: string;
   totalCost?: number;
   inputTokens?: number;
+  promptTokens?: number;
+  uncachedInputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheWriteInputTokens?: number;
   outputTokens?: number;
   cachedInputTokens?: number;
   reasoningTokens?: number;

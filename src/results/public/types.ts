@@ -95,12 +95,23 @@ export interface PublicBatchIndexEntry {
   manifestPath: string;
   reportPath: string;
   csvPath: string;
+  benchmarkPaths?: Record<string, { jsonPath: string; reportPath: string; csvPath: string }>;
+}
+
+export interface PublicBenchmarkIndexEntry {
+  id: string;
+  label: string;
+  batchId: string;
+  jsonPath: string;
+  reportPath: string;
+  csvPath: string;
 }
 
 export interface PublicResultsIndex {
   schemaVersion: 1;
   updatedAt: string;
   batches: PublicBatchIndexEntry[];
+  benchmarks?: PublicBenchmarkIndexEntry[];
 }
 
 export interface PublicResultsObjectOptions {

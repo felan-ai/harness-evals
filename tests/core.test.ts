@@ -17,6 +17,7 @@ import { copyWorkspace } from '../src/workspace/copy.js';
 import { snapshotWorkspace } from '../src/workspace/snapshot.js';
 import { diffWorkspace } from '../src/workspace/diff.js';
 import { buildMatrix } from '../src/runner/matrix.js';
+import { resolveBenchmarkSelection } from '../src/benchmarks/select.js';
 import { builtInAdapters, createAdapterRegistry } from '../src/adapters/registry.js';
 import { runHarness } from '../src/runner/evaluate.js';
 import { createOutputDispatcher } from '../src/output/dispatcher.js';
@@ -25,6 +26,8 @@ import { createOutputProviderRegistry } from '../src/output/registry.js';
 import type { OutputProvider } from '../src/output/types.js';
 import { buildRunReport } from '../src/visualization/report.js';
 import { renderReport } from '../src/visualization/render.js';
+import { metricsForStep } from '../src/metrics.js';
+import { buildCostSummary } from '../src/cost/rollup.js';
 
 const tempDirs: string[] = [];
 
@@ -129,6 +132,66 @@ agents:
 tests: []
 `);
   await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow('agents.bad.comparisonId must not be empty');
+});
+
+test('benchmark definitions select explicit arms and trial count without weighted scoring', async () => {
+  const root = await tempRoot();
+  await mkdir(join(root, 'cases'));
+  await writeFile(join(root, 'harness-evals.yaml'), `
+version: 1
+agents:
+  baseline:
+    adapter: command
+    command: echo
+    comparisonId: baseline-id
+  candidate:
+    adapter: command
+    command: echo
+    comparisonId: candidate-id
+tests:
+  - cases/*.yaml
+benchmarks:
+  simple:
+    label: Simple comparison
+    select:
+      suites: [pilot]
+    arms:
+      baseline: baseline
+      candidate: candidate
+    trials: 3
+    qualityGates:
+      - metric: quality.passRate
+        min: 1
+    objective:
+      metric: cost.total
+      goal: minimize
+`);
+  await writeFile(join(root, 'cases', 'case.yaml'), 'id: one\nsuite: pilot\nprompt: hi\nassert: []\n');
+
+  const config = await loadHarnessConfig({ cwd: root });
+  const selection = resolveBenchmarkSelection(config, 'simple');
+  const matrix = buildMatrix(config, { benchmarkId: 'simple' });
+  expect(selection.agentNames).toEqual(['baseline', 'candidate']);
+  expect(selection.testCases.map((testCase) => testCase.id)).toEqual(['one']);
+  expect(matrix).toHaveLength(6);
+  expect(matrix.every((entry) => entry.attempts === 3 && entry.benchmark?.id === 'simple')).toBe(true);
+  expect(matrix.map((entry) => entry.agentName)).toEqual(['baseline', 'baseline', 'baseline', 'candidate', 'candidate', 'candidate']);
+  expect(() => buildMatrix(config, { benchmarkId: 'simple', suite: 'pilot' })).toThrow('--benchmark cannot be combined with --suite');
+});
+
+test('benchmark definitions require exactly one candidate arm', async () => {
+  const root = await tempRoot();
+  await writeFile(join(root, 'harness-evals.yaml'), `
+version: 1
+tests: []
+benchmarks:
+  invalid:
+    label: Invalid comparison
+    select: { cases: [one] }
+    arms: { baseline: base, candidates: [one, two] }
+    objective: { metric: cost.total, goal: minimize }
+`);
+  await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow('Unknown benchmarks.invalid.arms key: candidates');
 });
 
 test('workspace setup commands load and case commands replace project defaults', async () => {
@@ -1317,6 +1380,9 @@ test('pi adapter accumulates usage and cost from assistant message_end events', 
       provider: 'openai-codex',
       model: 'gpt-5.5',
       inputTokens: 200,
+      promptTokens: 300,
+      uncachedInputTokens: 200,
+      cacheReadInputTokens: 100,
       outputTokens: 50,
       cachedInputTokens: 100,
       totalTokens: 350,
@@ -1325,6 +1391,42 @@ test('pi adapter accumulates usage and cost from assistant message_end events', 
       currency: 'USD',
     }),
   ]);
+});
+
+test('benchmark metrics use provider tokens and keep cache usage separate', () => {
+  const metrics = metricsForStep({
+    durationMs: 12,
+    pass: true,
+    cost: {
+      available: true,
+      totalCost: 0.5,
+      usage: [{ provider: 'test', model: 'model', inputTokens: 30, cachedInputTokens: 20, outputTokens: 4, requests: 2 }],
+    },
+  });
+  expect(metrics).toEqual({
+    'duration.ms': 12,
+    'quality.passRate': 1,
+    'cost.total': 0.5,
+    'usage.promptTokens': 30,
+    'usage.uncachedInputTokens': 30,
+    'usage.cacheReadInputTokens': 20,
+    'usage.outputTokens': 4,
+    'usage.requests': 2,
+  });
+});
+
+test('cost rollups preserve normalized prompt and cache fields', () => {
+  const summary = buildCostSummary({ entries: [{ report: { available: true, usage: [{
+    provider: 'test', model: 'model', inputTokens: 30, promptTokens: 50,
+    uncachedInputTokens: 30, cacheReadInputTokens: 15, cacheWriteInputTokens: 5,
+  }] } }] });
+  expect(summary.rollup).toMatchObject({
+    inputTokens: 30,
+    promptTokens: 50,
+    uncachedInputTokens: 30,
+    cacheReadInputTokens: 15,
+    cacheWriteInputTokens: 5,
+  });
 });
 
 test('pi adapter streams events from the stdout artifact and caps giant tool results', async () => {
@@ -1402,6 +1504,9 @@ test('claude-code adapter parses json output into final output and cost', async 
       provider: 'anthropic',
       model: 'claude-haiku-4-5-20251001',
       inputTokens: 451,
+      promptTokens: 30304,
+      uncachedInputTokens: 451,
+      cacheReadInputTokens: 29853,
       outputTokens: 88,
       cachedInputTokens: 29853,
       totalTokens: 30392,
@@ -1439,6 +1544,9 @@ test('codex adapter parses --json events into final output and token usage', asy
       provider: 'openai',
       model: 'gpt-5.5',
       inputTokens: 1200,
+      promptTokens: 1200,
+      uncachedInputTokens: 400,
+      cacheReadInputTokens: 800,
       cachedInputTokens: 800,
       outputTokens: 300,
       totalTokens: 1500,

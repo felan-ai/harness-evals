@@ -1,6 +1,7 @@
 import {
   DEFAULT_HARNESS_CONFIG,
   type AgentConfig,
+  type BenchmarkDefinition,
   type DockerConfig,
   type HarnessConfig,
   type MockConfig,
@@ -15,7 +16,7 @@ import {
 
 type VisualizationConfigOverride = Omit<Partial<VisualizationConfig>, 'include'> & { include?: Partial<VisualizationConfig['include']> };
 
-export interface HarnessConfigOverride extends Omit<Partial<HarnessConfig>, 'workspace' | 'docker' | 'agents' | 'tests' | 'mocks' | 'output' | 'visualization' | 'scoring' | 'results'> {
+export interface HarnessConfigOverride extends Omit<Partial<HarnessConfig>, 'workspace' | 'docker' | 'agents' | 'tests' | 'mocks' | 'output' | 'visualization' | 'scoring' | 'results' | 'benchmarks'> {
   workspace?: Partial<WorkspaceConfig>;
   docker?: Partial<DockerConfig>;
   agents?: Record<string, AgentConfig>;
@@ -25,6 +26,7 @@ export interface HarnessConfigOverride extends Omit<Partial<HarnessConfig>, 'wor
   visualization?: VisualizationConfigOverride;
   scoring?: ProjectScoringConfig;
   results?: ResultsConfig;
+  benchmarks?: Record<string, BenchmarkDefinition>;
 }
 
 export function mergeHarnessConfig(base: HarnessConfig, override: HarnessConfigOverride): HarnessConfig {
@@ -41,7 +43,23 @@ export function mergeHarnessConfig(base: HarnessConfig, override: HarnessConfigO
     visualization: mergeVisualizationConfig(base.visualization, override.visualization),
     scoring: mergeScoringConfig(base.scoring, override.scoring),
     results: mergeResultsConfig(base.results, override.results),
+    benchmarks: cloneBenchmarks(override.benchmarks ?? base.benchmarks),
   };
+}
+
+function cloneBenchmarks(benchmarks: Record<string, BenchmarkDefinition>): Record<string, BenchmarkDefinition> {
+  return Object.fromEntries(Object.entries(benchmarks).map(([id, benchmark]) => [id, {
+    ...benchmark,
+    select: {
+      suites: benchmark.select.suites ? [...benchmark.select.suites] : undefined,
+      cases: benchmark.select.cases ? [...benchmark.select.cases] : undefined,
+    },
+    arms: { baseline: benchmark.arms.baseline, candidate: benchmark.arms.candidate },
+    qualityGates: benchmark.qualityGates.map((gate) => ({ ...gate })),
+    objective: { ...benchmark.objective },
+    aggregation: { ...benchmark.aggregation },
+    secondaryMetrics: [...benchmark.secondaryMetrics],
+  }]));
 }
 
 export function withHarnessDefaults(config: HarnessConfigOverride): HarnessConfig {

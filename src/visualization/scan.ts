@@ -4,9 +4,9 @@ import { existsSync } from 'node:fs';
 
 /**
  * Workspace run scanner: enumerates task-run directories under the artifact
- * root and produces compact records for aggregate reporting. Reads ONLY
- * summary.json and run-started.json — legacy result.json files can be hundreds
- * of megabytes (pre-streaming-fix runs embedded full agent stdout).
+ * root and produces compact records for aggregate reporting. Reads compact
+ * summary.json, run-started.json, and optional benchmark-metrics.json files —
+ * never legacy result.json files, which can be hundreds of megabytes.
  */
 
 export type ScannedRunStatus = 'passed' | 'failed' | 'error' | 'skipped' | 'timeout' | 'incomplete';
@@ -48,6 +48,8 @@ export interface ScannedTaskRun {
   model?: string;
   models?: string[];
   assertions?: { total: number; passed: number; failedRequired: number };
+  metrics?: Record<string, number>;
+  metricsSource?: string;
   hasIndexHtml: boolean;
 }
 
@@ -179,6 +181,7 @@ async function scanRunDir(
 ): Promise<ScannedTaskRun | undefined> {
   const summary = await readJsonFile(join(runDir, 'summary.json'), warnings, runId);
   const started = await readJsonFile(join(runDir, 'run-started.json'), warnings, runId);
+  const metricSidecar = await readJsonFile(join(runDir, 'benchmark-metrics.json'), warnings, runId);
   if (!summary && !started) {
     warnings.push(`Skipped ${runId}: no summary.json or run-started.json`);
     return undefined;
@@ -234,6 +237,12 @@ async function scanRunDir(
       failedRequired: numberField(summary?.assertions.failedRequired) ?? 0,
     }
     : undefined;
+  const sidecarMetrics = isRecord(metricSidecar?.metrics) ? metricSidecar.metrics : undefined;
+  const summaryMetrics = isRecord(summary?.metrics) ? summary.metrics : undefined;
+  const metricEntries = Object.entries({ ...(sidecarMetrics ?? {}), ...(summaryMetrics ?? {}) })
+    .filter(([, value]) => numberField(value) !== undefined)
+    .map(([key, value]) => [key, value as number]);
+  const metrics = metricEntries.length > 0 ? Object.fromEntries(metricEntries) : undefined;
 
   return {
     runId,
@@ -274,6 +283,8 @@ async function scanRunDir(
     model: models?.[0],
     models,
     assertions,
+    metrics,
+    metricsSource: stringField(metricSidecar?.source),
     hasIndexHtml: existsSync(join(runDir, 'index.html')),
   };
 }
@@ -314,7 +325,7 @@ async function readJsonFile(path: string, warnings: string[], runId: string): Pr
     const parsed = JSON.parse(raw) as unknown;
     return isRecord(parsed) ? parsed : undefined;
   } catch (error) {
-    warnings.push(`Unreadable ${path.endsWith('summary.json') ? 'summary.json' : 'run-started.json'} in ${runId}: ${error instanceof Error ? error.message : String(error)}`);
+    warnings.push(`Unreadable ${path.split('/').at(-1) ?? 'run metadata'} in ${runId}: ${error instanceof Error ? error.message : String(error)}`);
     return undefined;
   }
 }

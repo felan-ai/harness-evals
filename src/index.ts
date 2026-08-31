@@ -1,6 +1,20 @@
 export { loadHarnessConfig, type LoadHarnessConfigOptions } from './config/load.js';
 export { runHarness, runTestCase, type RunHarnessOptions } from './runner/evaluate.js';
 export { buildMatrix } from './runner/matrix.js';
+export { metricsForRun, metricsForStep, type NumericMetrics } from './metrics.js';
+export { benchmarkDefinitionDigest, resolveBenchmarkSelection, type ResolvedBenchmarkSelection } from './benchmarks/select.js';
+export {
+  analyzeBenchmark,
+  type BenchmarkArmResult,
+  type BenchmarkArmState,
+  type BenchmarkAttemptGain,
+  type BenchmarkAttemptObservation,
+  type BenchmarkCaseGain,
+  type BenchmarkCaseResult,
+  type BenchmarkGainSummary,
+  type BenchmarkReportData,
+} from './benchmarks/analyze.js';
+export { renderBenchmarkCsv, renderBenchmarkHtml, renderBenchmarkIndexHtml, renderBenchmarkJson } from './benchmarks/render.js';
 export {
   ImageResolutionError,
   resolveDockerImage,
@@ -75,6 +89,17 @@ export type {
   VisualizationConfig,
   JudgeDefaults,
   ProjectScoringConfig,
+  BenchmarkAggregation,
+  BenchmarkArms,
+  BenchmarkCaseReducer,
+  BenchmarkDefinition,
+  BenchmarkGoal,
+  BenchmarkMetricRef,
+  BenchmarkObjective,
+  BenchmarkQualityGate,
+  BenchmarkRunMetadata,
+  BenchmarkSelector,
+  BenchmarkTrialReducer,
   MatrixEntry,
   WorkspaceGitConfig,
 } from './config/schema.js';
@@ -83,7 +108,7 @@ export { publishBatch, publishBatchStatus } from './results/public/publish.js';
 export { FilePublicResultsStore } from './results/public/stores/file.js';
 export type { LocalBatchRecord } from './runner/batch-record.js';
 export type {
-  PublicBatchIndexEntry, PublicBatchManifest, PublicBatchTotals, PublicBatchValidity, PublicCostSummary,
+  PublicBatchIndexEntry, PublicBatchManifest, PublicBatchTotals, PublicBatchValidity, PublicBenchmarkIndexEntry, PublicCostSummary,
   PublicProvenance, PublicResultsIndex, PublicResultsObjectOptions, PublicResultsStore, PublicRunStatus, PublicRunSummary,
 } from './results/public/types.js';
 export type { HiddenPatchResult, ModelPatchArtifact, VerifierRewardResult, VerifierRunResult, VerifierStatus } from './verifier/types.js';

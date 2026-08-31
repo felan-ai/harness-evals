@@ -6,6 +6,7 @@ import type { AgentEventsSummary } from '../events/types.js';
 import type { ScoreSummary } from '../scoring/types.js';
 import type { HiddenPatchResult, ModelPatchArtifact, VerifierRunResult } from '../verifier/types.js';
 import type { WorkspaceDiff } from '../workspace/diff.js';
+import type { NumericMetrics } from '../metrics.js';
 
 export type ScenarioStepStatus = 'passed' | 'failed' | 'skipped' | 'timeout' | 'error';
 export type ScenarioRunStatus = 'passed' | 'failed' | 'timeout' | 'error';
@@ -42,6 +43,7 @@ export interface ScenarioStepResult {
   completedAt: string;
   error?: string;
   metadata: Record<string, unknown>;
+  metrics?: NumericMetrics;
 }
 
 export interface TestRunResult {
@@ -71,6 +73,7 @@ export interface TestRunResult {
   hiddenPatch?: HiddenPatchResult;
   error?: string;
   metadata: Record<string, unknown>;
+  metrics?: NumericMetrics;
 }
 
 export interface HarnessRunResult {

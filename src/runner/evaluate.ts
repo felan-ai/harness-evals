@@ -25,6 +25,7 @@ import type { MockCallSummary } from '../events/types.js';
 import { createConfiguredJudgeRunner } from '../judge/configured.js';
 import type { JudgeRunner } from '../judge/types.js';
 import type { MockCallRecord } from '../mocks/types.js';
+import { metricsForRun, metricsForStep } from '../metrics.js';
 import { buildScenarioScoreSummary, buildScoreSummary } from '../scoring/index.js';
 import { applyHiddenPatch, captureModelPatch } from '../verifier/patch.js';
 import { runVerifier, verifierSetupError } from '../verifier/run.js';
@@ -164,6 +165,7 @@ export async function runTestCase(
         attemptIndex: entry.attemptIndex,
         attemptNumber: entry.attemptNumber,
         attempts: entry.attempts,
+        benchmark: entry.benchmark,
         runDir,
         batch: activeBatch,
         testCase: {
@@ -612,6 +614,7 @@ async function executeScenarioStep(input: ExecuteScenarioStepInput): Promise<Exe
         redactions: input.redactions,
         mockCalls,
       }),
+      metrics: metricsForStep({ durationMs, pass: finalStatus === 'passed', cost: stepCost }),
     };
 
     await input.dispatcher.emit({ type: 'step.completed', stepId, payload: buildStepCompletedPayload(result) });
@@ -783,6 +786,7 @@ async function skipScenarioStep(input: {
       skipReason: input.reason,
       workspace,
     },
+    metrics: metricsForStep({ durationMs: 0, pass: false, cost }),
   };
   await input.dispatcher.emit({ type: 'step.completed', stepId, payload: buildStepCompletedPayload(result) });
   return result;
@@ -1043,6 +1047,7 @@ function buildTestRunResult(input: {
       agentName: input.entry.agentName,
       agentLabel: input.entry.agent.label,
       comparisonId: input.entry.agent.comparisonId,
+      benchmark: input.entry.benchmark,
       runId: input.context.runId,
       runDir: input.context.runDir,
       status,
@@ -1076,6 +1081,7 @@ function buildTestRunResult(input: {
       })),
       workspace: input.workspace,
     }, input.redactions) as Record<string, unknown>,
+    metrics: metricsForRun({ durationMs: input.durationMs, pass: status === 'passed', cost }),
   };
 }
 
@@ -1133,6 +1139,7 @@ function buildSetupErrorResult(
       agentName: entry.agentName,
       agentLabel: entry.agent.label,
       comparisonId: entry.agent.comparisonId,
+      benchmark: entry.benchmark,
       runId,
       runDir,
       status: 'error',
@@ -1148,6 +1155,7 @@ function buildSetupErrorResult(
       cost,
       stepCount: steps.length,
     }, redactions) as Record<string, unknown>,
+    metrics: metricsForRun({ durationMs, pass: false, cost }),
   };
 }
 
@@ -1434,6 +1442,7 @@ function buildRunSummary(result: TestRunResult, dispatcher: OutputDispatcher, ba
     agentName: result.agentName,
     agentLabel: readString(result.metadata.agentLabel),
     comparisonId: readString(result.metadata.comparisonId),
+    benchmark: result.metadata.benchmark,
     batchId: batch?.batchId,
     suite: result.suite,
     description: result.description,
@@ -1451,6 +1460,7 @@ function buildRunSummary(result: TestRunResult, dispatcher: OutputDispatcher, ba
     verifier: result.verifier,
     modelPatch: result.modelPatch,
     hiddenPatch: result.hiddenPatch,
+    metrics: result.metrics,
     steps: result.steps.map((step) => ({
       id: step.id,
       originalStepId: step.originalStepId,

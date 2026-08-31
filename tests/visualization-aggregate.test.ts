@@ -170,12 +170,14 @@ const SUMMARY_BASE = {
     byModel: { 'claude-fable-5': {}, 'claude-haiku-4-5': {} },
   },
   assertions: { total: 1, passed: 1, failedRequired: 0 },
+  metrics: { 'quality.passRate': 1, 'cost.total': 2.5, invalid: 'ignored' },
 };
 
 test('scanWorkspaceRuns reads modern, legacy, corrupt, and incomplete run dirs', async () => {
   const root = await tempRoot();
   await writeRunDir(root, 'case-a-claude-2026-06-10T18-04-13-548Z-0', {
     'summary.json': { ...SUMMARY_BASE, batchId: '20260610-180413-abcd', suite: 'pilot' },
+    'benchmark-metrics.json': { schemaVersion: 1, source: 'historical-derived', metrics: { 'usage.outputTokens': 7, 'quality.passRate': 0 } },
     'run-started.json': {
       caseId: 'case-a', agentName: 'claude',
       batch: { batchId: '20260610-180413-abcd', startedAt: '2026-06-10T18:04:13.000Z', label: 'claude · 1 case', argv: ['run'], agents: ['claude'] },
@@ -207,6 +209,7 @@ test('scanWorkspaceRuns reads modern, legacy, corrupt, and incomplete run dirs',
   expect(modern?.suite).toBe('pilot');
   expect(modern?.agentLabel).toBe('Claude');
   expect(modern?.comparisonId).toBe('claude-default');
+  expect(modern?.metrics).toEqual({ 'usage.outputTokens': 7, 'quality.passRate': 1, 'cost.total': 2.5 });
   expect(modern?.models).toEqual(['claude-fable-5', 'claude-haiku-4-5']);
   expect(modern?.provider).toBe('anthropic');
   expect(modern?.cost?.cachedInputTokens).toBe(1000);

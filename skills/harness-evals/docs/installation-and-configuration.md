@@ -123,6 +123,22 @@ Useful top-level sections:
 - `visualization`: html/json/csv report settings
 - `judge`: shared defaults for `llmJudge` assertions
 - `scoring`: weights for pass rate, judge score, verifier reward, latency, cost, token usage
+- `benchmarks`: named comparisons with selectors, baseline/candidate arms,
+  trials, quality gates, one objective, and explicit reducers
+
+Minimal benchmark example:
+
+```yaml
+benchmarks:
+  cost:
+    label: Agent cost
+    select: { suites: [checkout] }
+    arms: { baseline: agent-a, candidate: agent-b }
+    trials: 3
+    qualityGates:
+      - { metric: quality.passRate, min: 1 }
+    objective: { metric: cost.total, goal: minimize }
+```
 
 ## Config discovery
 

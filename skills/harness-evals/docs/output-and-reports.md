@@ -237,3 +237,23 @@ The per-run/latest surface uses one metric matrix per test case and puts
 diagnostics in the modal; the aggregate dashboard keeps its cross-case matrix.
 
 Use the raw JSON artifacts when you need machine-readable detail; use HTML or CSV for comparison and review.
+
+## Benchmark reports
+
+Benchmark reports are separate from the generic aggregate explorer. They show
+the declared objective, matrix completeness, quality gates, every trial
+observation, per-case reductions, absolute values, and baseline deltas. A
+candidate is not eligible when required quality regresses or observations are
+missing.
+
+Each benchmark has exactly two arms. The combined report renders one row per
+benchmark: a direction-aware bar for the mean percentage gain across cases and
+a whisker spanning the minimum and maximum case gains. Positive gain always
+means the candidate improved the declared objective, whether that objective is
+minimized or maximized.
+
+Numeric observations are persisted in `summary.json.metrics`. Small,
+explicitly marked `benchmark-metrics.json` sidecars can supply derived metrics
+for historical local runs without making the scanner load large `result.json`
+artifacts. `harness-evals view --benchmark all` generates the combined landing
+page and each benchmark's HTML/JSON/CSV files.

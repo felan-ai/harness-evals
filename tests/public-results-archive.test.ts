@@ -76,19 +76,22 @@ test('publishes a finalized batch to filesystem and reclassifies catalog without
   const artifactRoot = join(root, '.harness-evals', 'runs');
   const runId = 'case-a-agent-2026-01-01T01-02-03-000Z-0';
   const runDir = join(artifactRoot, runId);
-  await writeFile(join(await mkdirPath(runDir), 'summary.json'), JSON.stringify({ caseId: 'case-a', agentName: 'agent', batchId, status: 'passed', pass: true, durationMs: 42 }));
+  await writeFile(join(await mkdirPath(runDir), 'summary.json'), JSON.stringify({ caseId: 'case-a', agentName: 'agent', batchId, status: 'passed', pass: true, durationMs: 42, metrics: { 'quality.passRate': 1, 'cost.total': 1 } }));
   await writeFile(join(runDir, 'run-started.json'), JSON.stringify({ caseId: 'case-a', agentName: 'agent', batch: { batchId, startedAt: '2026-01-01T01:02:03.000Z', label: '<batch>' } }));
   const batch = { batchId, startedAt: '2026-01-01T01:02:03.000Z', label: '<batch>', agents: ['agent'], caseCount: 1, runCount: 1 };
   await writeCompletedBatchRecord({ projectRoot: root, batch, expectedRunCount: 1, runIds: [runId] });
   const store = new FilePublicResultsStore(join(root, 'store'));
   const config = { store: { type: 'file' as const, root: join(root, 'store') }, prefix: 'archive', publicBaseUrl: 'https://example.test/archive/v1' };
 
-  const published = await publishBatch({ projectRoot: root, artifactRoot, config, batchId, store });
+  const published = await publishBatch({ projectRoot: root, artifactRoot, config, batchId, store, benchmarks: {
+    cost: { revision: 1, label: 'Cost', select: { cases: ['case-a'] }, arms: { baseline: 'agent', candidate: 'candidate' }, trials: 1, qualityGates: [{ metric: 'quality.passRate', min: 1 }], objective: { metric: 'cost.total', goal: 'minimize' }, aggregation: { trials: 'median', cases: 'macroMean' }, secondaryMetrics: [] },
+  } });
   expect(published.reportUrl).toBe(`https://example.test/archive/v1/batches/${batchId}/results.html`);
   const before = await store.get(`archive/v1/batches/${batchId}/manifest.json`);
   expect(before).toBeDefined();
   await publishBatchStatus({ config, batchId, validity: 'invalid', validityNote: 'review', store });
   expect(await store.get(`archive/v1/batches/${batchId}/manifest.json`)).toEqual(before);
+  expect(await store.get(`archive/v1/batches/${batchId}/benchmarks/cost/results.json`)).toBeDefined();
   const index = JSON.parse(new TextDecoder().decode(await store.get('archive/v1/index.json')));
   expect(index.batches[0]).toMatchObject({ batchId, validity: 'invalid', validityNote: 'review' });
 });

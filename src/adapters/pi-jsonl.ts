@@ -122,9 +122,16 @@ function accumulateMessageUsage(message: Record<string, unknown>, usageByModel: 
   const model = typeof message.model === 'string' ? message.model : 'unknown';
   const key = `${provider}${model}`;
   const entry = usageByModel.get(key) ?? { provider, model, requests: 0 };
-  entry.inputTokens = (entry.inputTokens ?? 0) + numberOrZero(usage.input);
+  const inputTokens = numberOrZero(usage.input);
+  const cacheReadInputTokens = numberOrZero(usage.cacheRead);
+  const cacheWriteInputTokens = numberOrZero(usage.cacheWrite);
+  entry.inputTokens = (entry.inputTokens ?? 0) + inputTokens;
+  entry.promptTokens = (entry.promptTokens ?? 0) + inputTokens + cacheReadInputTokens + cacheWriteInputTokens;
+  entry.uncachedInputTokens = (entry.uncachedInputTokens ?? 0) + inputTokens;
+  entry.cacheReadInputTokens = (entry.cacheReadInputTokens ?? 0) + cacheReadInputTokens;
+  entry.cacheWriteInputTokens = (entry.cacheWriteInputTokens ?? 0) + cacheWriteInputTokens;
   entry.outputTokens = (entry.outputTokens ?? 0) + numberOrZero(usage.output);
-  entry.cachedInputTokens = (entry.cachedInputTokens ?? 0) + numberOrZero(usage.cacheRead);
+  entry.cachedInputTokens = (entry.cachedInputTokens ?? 0) + cacheReadInputTokens;
   entry.totalTokens = (entry.totalTokens ?? 0)
     + (numberOrUndefined(usage.totalTokens)
       ?? numberOrZero(usage.input) + numberOrZero(usage.output) + numberOrZero(usage.cacheRead) + numberOrZero(usage.cacheWrite));

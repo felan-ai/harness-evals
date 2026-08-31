@@ -28,6 +28,10 @@ per-run settings and selected credentials under an isolated `FELAN_AGENT_DIR`.
 
 Run the selected case/agent matrix.
 
+`--benchmark <id>` selects the benchmark's exact cases, baseline/candidate
+agents, and trial count. It cannot be combined with `--suite`, `--case`,
+`--agents`, or `--attempts`.
+
 ```bash
 harness-evals run [--config path] [--suite name] [--case id] [--agents a,b] [--concurrency n] [--attempts n]
 ```
@@ -58,6 +62,8 @@ Output:
 
 List configured agents, cases, and the size of the selected matrix.
 
+Use `--benchmark <id>` to validate and display its resolved matrix.
+
 ```bash
 harness-evals list [--config path]
 ```
@@ -80,6 +86,10 @@ Output includes:
 ### `view`
 
 Generate and open the aggregate workspace report, or locate single-run reports.
+
+`view --benchmark <id>` writes one quality-gated benchmark report.
+`view --benchmark all` writes a landing page and HTML/JSON/CSV artifacts for
+every declared benchmark, using the newest relevant batch by default.
 
 ```bash
 harness-evals view [--config path] [--batch id|latest|all] [--agents a,b] [--suite name] [--status s1,s2] [--no-open] [--port n]
@@ -106,6 +116,8 @@ Behavior:
 ### `export`
 
 Export the aggregate report (filtered server-side), or copy/render legacy reports.
+
+Use `--benchmark <id>` to export its benchmark-specific HTML, JSON, or CSV.
 
 ```bash
 harness-evals export [--config path] --format html|json|csv --output path [--batch id|latest|all] [--agents a,b] [--suite name] [--case id] [--status s1,s2]

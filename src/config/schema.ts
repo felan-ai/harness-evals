@@ -231,6 +231,57 @@ export interface MetricScoreConfig extends ScoreTypeConfig {
 
 export type ProjectScoringConfig = Partial<Record<ScoreType, ScoreTypeConfig | MetricScoreConfig>>;
 
+export type BenchmarkGoal = 'minimize' | 'maximize';
+export type BenchmarkTrialReducer = 'median' | 'mean';
+export type BenchmarkCaseReducer = 'macroMean';
+
+export interface BenchmarkSelector {
+  suites?: string[];
+  cases?: string[];
+}
+
+export interface BenchmarkArms {
+  baseline: string;
+  candidate: string;
+}
+
+export interface BenchmarkMetricRef {
+  metric: string;
+}
+
+export interface BenchmarkObjective extends BenchmarkMetricRef {
+  goal: BenchmarkGoal;
+}
+
+export interface BenchmarkQualityGate extends BenchmarkMetricRef {
+  min?: number;
+  max?: number;
+}
+
+export interface BenchmarkAggregation {
+  trials: BenchmarkTrialReducer;
+  cases: BenchmarkCaseReducer;
+}
+
+export interface BenchmarkDefinition {
+  revision: number;
+  label: string;
+  description?: string;
+  select: BenchmarkSelector;
+  arms: BenchmarkArms;
+  trials: number;
+  qualityGates: BenchmarkQualityGate[];
+  objective: BenchmarkObjective;
+  aggregation: BenchmarkAggregation;
+  secondaryMetrics: string[];
+}
+
+export interface BenchmarkRunMetadata {
+  id: string;
+  revision: number;
+  digest: string;
+}
+
 export interface TestCaseStepDefinition {
   id: string;
   prompt: string;
@@ -282,6 +333,7 @@ export interface HarnessConfig {
   visualization: VisualizationConfig;
   judge?: JudgeDefaults;
   scoring: ProjectScoringConfig;
+  benchmarks: Record<string, BenchmarkDefinition>;
 }
 
 export interface LoadedHarnessConfig extends HarnessConfig {
@@ -291,6 +343,7 @@ export interface LoadedHarnessConfig extends HarnessConfig {
 }
 
 export interface CliOverrides {
+  benchmarkId?: string;
   agents?: string[];
   caseId?: string;
   suite?: string;
@@ -313,6 +366,7 @@ export interface MatrixEntry {
   attemptIndex: number;
   attemptNumber: number;
   attempts: number;
+  benchmark?: BenchmarkRunMetadata;
 }
 
 export const DEFAULT_ENV_ALLOWLIST = [
@@ -378,4 +432,5 @@ export const DEFAULT_HARNESS_CONFIG: HarnessConfig = {
     cost: { weight: 0 },
     tokenUsage: { weight: 0 },
   },
+  benchmarks: {},
 };
