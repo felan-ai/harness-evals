@@ -181,6 +181,11 @@ export async function runTestCase(
           comparisonId: entry.agent.comparisonId,
           model: entry.agent.model,
           provider: entry.agent.provider,
+          thinking: entry.agent.thinking,
+          // Adapter-installed agent build (e.g. felan config.packageVersion).
+          // Recorded so a run's artifacts identify which agent version produced
+          // it without cross-referencing the config at the time of the run.
+          packageVersion: readAgentPackageVersion(entry.agent.config),
         },
         docker: {
           image: entry.docker.image,
@@ -1056,6 +1061,8 @@ function buildTestRunResult(input: {
       status,
       provider: input.entry.agent.provider,
       model: input.entry.agent.model,
+      thinking: input.entry.agent.thinking,
+      packageVersion: readAgentPackageVersion(input.entry.agent.config),
       attempt: {
         index: input.entry.attemptIndex,
         number: input.entry.attemptNumber,
@@ -1148,6 +1155,8 @@ function buildSetupErrorResult(
       status: 'error',
       provider: entry.agent.provider,
       model: entry.agent.model,
+      thinking: entry.agent.thinking,
+      packageVersion: readAgentPackageVersion(entry.agent.config),
       attempt: {
         index: entry.attemptIndex,
         number: entry.attemptNumber,
@@ -1445,6 +1454,12 @@ function buildRunSummary(result: TestRunResult, dispatcher: OutputDispatcher, ba
     agentName: result.agentName,
     agentLabel: readString(result.metadata.agentLabel),
     comparisonId: readString(result.metadata.comparisonId),
+    // Agent identity, so a run's artifacts are self-describing and a batch can
+    // be attributed to an exact agent build without the config it ran under.
+    provider: readString(result.metadata.provider),
+    model: readString(result.metadata.model),
+    thinking: readString(result.metadata.thinking),
+    packageVersion: readString(result.metadata.packageVersion),
     benchmark: result.metadata.benchmark,
     batchId: batch?.batchId,
     suite: result.suite,
@@ -1597,6 +1612,15 @@ function readMockCalls(metadata: Record<string, unknown>): MockCallRecord[] {
   const mocks = readRecord(metadata.mocks);
   const calls = mocks?.calls;
   return Array.isArray(calls) ? calls as MockCallRecord[] : [];
+}
+
+// The agent build an adapter installs lives in the adapter-specific `config`
+// record (felan uses `config.packageVersion`). Read it leniently for metadata:
+// adapters validate their own shape, and a malformed value must not abort a run
+// at the point we are only describing it.
+function readAgentPackageVersion(config: Record<string, unknown> | undefined): string | undefined {
+  const value = config?.packageVersion;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {

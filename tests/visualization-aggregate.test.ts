@@ -332,6 +332,57 @@ test('renderAggregateHtml embeds parseable data, charts, and the client renderer
   expect(html).toContain('@media print');
 });
 
+test('scanWorkspaceRuns prefers declared agent identity and keeps it on runs that never billed', async () => {
+  const root = await tempRoot();
+  // Declared identity disagrees with what billed: the config is what the run
+  // was pointed at, so it wins; `models` still reports everything that charged.
+  await writeRunDir(root, 'case-a-felan-2026-06-10T18-04-13-548Z-0', {
+    'summary.json': {
+      ...SUMMARY_BASE,
+      agentName: 'felan-cbm-on',
+      batchId: '20260610-180413-abcd',
+      provider: 'openai-codex',
+      model: 'gpt-5.6-sol',
+      thinking: 'max',
+      packageVersion: '0.19.2',
+    },
+    'run-started.json': { caseId: 'case-a', agentName: 'felan-cbm-on' },
+  });
+  // Provider error before any spend: no cost block at all, so identity is only
+  // recoverable from what the run declared.
+  await writeRunDir(root, 'case-b-felan-2026-06-10T18-05-13-548Z-0', {
+    'summary.json': {
+      caseId: 'case-b',
+      agentName: 'felan-cbm-on',
+      batchId: '20260610-180413-abcd',
+      status: 'error',
+      pass: false,
+      error: 'Codex error: The usage limit has been reached',
+    },
+    'run-started.json': {
+      caseId: 'case-b',
+      agentName: 'felan-cbm-on',
+      agent: { provider: 'openai-codex', model: 'gpt-5.6-sol', thinking: 'max', packageVersion: '0.19.2' },
+    },
+  });
+
+  const scan = await scanWorkspaceRuns({ artifactRoot: root });
+
+  const billed = scan.taskRuns.find((run) => run.caseId === 'case-a');
+  expect(billed?.provider).toBe('openai-codex');
+  expect(billed?.model).toBe('gpt-5.6-sol');
+  expect(billed?.models).toEqual(['claude-fable-5', 'claude-haiku-4-5']);
+  expect(billed?.thinking).toBe('max');
+  expect(billed?.packageVersion).toBe('0.19.2');
+
+  const unbilled = scan.taskRuns.find((run) => run.caseId === 'case-b');
+  expect(unbilled?.cost).toBeUndefined();
+  expect(unbilled?.provider).toBe('openai-codex');
+  expect(unbilled?.model).toBe('gpt-5.6-sol');
+  expect(unbilled?.thinking).toBe('max');
+  expect(unbilled?.packageVersion).toBe('0.19.2');
+});
+
 test('renderAggregateCsv emits one row per task run with token columns', async () => {
   const { renderAggregateCsv } = await import('../src/visualization/aggregate/csv.js');
   const csv = renderAggregateCsv([
@@ -339,13 +390,17 @@ test('renderAggregateCsv emits one row per task run with token columns', async (
       ...fakeRun({ runId: 'r1', suite: 'pilot, special' }),
       runDir: undefined as never,
       models: ['m1', 'm2'],
+      model: 'm1',
+      thinking: 'max',
+      packageVersion: '0.19.2',
       cost: { totalCost: 1.5, currency: 'USD', inputTokens: 10, cachedInputTokens: 100, outputTokens: 5, totalTokens: 115, requests: 3 },
     } as never,
   ]);
   const [header, row] = csv.split('\n');
-  expect(header).toBe('batchId,caseId,suite,agentName,provider,models,attemptNumber,status,pass,score,durationMs,cost,currency,inputTokens,cachedInputTokens,outputTokens,totalTokens,requests,startedAt,runId');
+  expect(header).toBe('batchId,caseId,suite,agentName,provider,model,models,thinking,packageVersion,attemptNumber,status,pass,score,durationMs,cost,currency,inputTokens,cachedInputTokens,outputTokens,totalTokens,requests,startedAt,runId');
   expect(row).toContain('"pilot, special"');
   expect(row).toContain('m1+m2');
+  expect(row).toContain('m1,m1+m2,max,0.19.2');
   expect(row).toContain('1.5,USD,10,100,5,115,3');
 });
 

@@ -33,8 +33,40 @@ export function projectPublicBatch(
   };
   addIfPresent(manifest, 'startedAt', batch.startedAt);
   addIfPresent(manifest, 'label', batch.label);
-  if (options.provenance && Object.keys(options.provenance).length > 0) manifest.provenance = options.provenance;
+  const provenance = mergeProvenance(options.provenance, deriveAgentPackageVersions(sortedRuns));
+  if (provenance) manifest.provenance = provenance;
   return manifest;
+}
+
+/**
+ * A batch is only attributable to an agent build if every run of that agent
+ * reports the same one. Disagreement means the config changed mid-batch, so the
+ * agent is left out rather than credited to whichever run happened to sort first.
+ */
+function deriveAgentPackageVersions(runs: readonly ScannedTaskRun[]): Record<string, string> | undefined {
+  const seen = new Map<string, Set<string>>();
+  for (const run of runs) {
+    if (!run.packageVersion) continue;
+    const versions = seen.get(run.agentName) ?? new Set<string>();
+    versions.add(run.packageVersion);
+    seen.set(run.agentName, versions);
+  }
+  const result: Record<string, string> = {};
+  for (const [agentName, versions] of [...seen.entries()].sort(([a], [b]) => compareStrings(a, b))) {
+    if (versions.size === 1) result[agentName] = [...versions][0]!;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function mergeProvenance(
+  supplied: PublicProvenance | undefined,
+  agentPackageVersions: Record<string, string> | undefined,
+): PublicProvenance | undefined {
+  const merged: PublicProvenance = { ...(supplied ?? {}) };
+  // Caller-supplied versions win: they describe what the publisher knows about
+  // the build, which the run artifacts cannot contradict.
+  if (agentPackageVersions && !merged.agentPackageVersions) merged.agentPackageVersions = agentPackageVersions;
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 export function calculatePublicBatchTotals(runs: readonly PublicRunSummary[]): PublicBatchTotals {
@@ -96,6 +128,8 @@ function projectRun(run: ScannedTaskRun): PublicRunSummary {
   addIfPresent(result, 'provider', run.provider);
   addIfPresent(result, 'model', run.model);
   if (run.models?.length) result.models = sortedUnique(run.models);
+  addIfPresent(result, 'thinking', run.thinking);
+  addIfPresent(result, 'packageVersion', run.packageVersion);
   if (run.assertions) result.assertions = { ...run.assertions };
   if (run.cost) {
     const cost = compactCost(run.cost);

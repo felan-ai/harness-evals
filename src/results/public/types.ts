@@ -40,6 +40,8 @@ export interface PublicRunSummary {
   provider?: string;
   model?: string;
   models?: string[];
+  thinking?: string;
+  packageVersion?: string;
   assertions?: {
     total: number;
     passed: number;
@@ -65,6 +67,11 @@ export interface PublicProvenance {
   projectRepository?: string;
   projectCommit?: string;
   projectDirty?: boolean;
+  /**
+   * agentName -> the agent build that produced the batch's runs, derived from
+   * the runs themselves. An agent whose runs disagree is omitted rather than
+   * reported as one version.
+   */
   agentPackageVersions?: Record<string, string>;
 }
 

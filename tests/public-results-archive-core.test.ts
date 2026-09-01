@@ -39,6 +39,39 @@ test('public projection is allowlisted, deterministic, and does not total mixed 
   expect(manifest.label).toBe('<unsafe>');
 });
 
+test('public projection carries agent identity and derives batch package versions', () => {
+  const batch = { batchId: '20260101-010203-abcd', synthetic: false, runCount: 3 };
+  const manifest = projectPublicBatch(batch, [
+    fakeRun({ runId: 'a', agentName: 'felan-cbm-on', provider: 'openai-codex', model: 'gpt-5.6-sol', thinking: 'max', packageVersion: '0.19.2' }),
+    fakeRun({ runId: 'b', agentName: 'felan-cbm-off', packageVersion: '0.19.2' }),
+    // Same agent, a different build: the batch cannot claim one version for it.
+    fakeRun({ runId: 'c', agentName: 'felan-cbm-off', packageVersion: '0.19.1' }),
+  ]);
+
+  expect(manifest.runs.find((run) => run.runId === 'a')).toMatchObject({
+    provider: 'openai-codex', model: 'gpt-5.6-sol', thinking: 'max', packageVersion: '0.19.2',
+  });
+  expect(manifest.provenance?.agentPackageVersions).toEqual({ 'felan-cbm-on': '0.19.2' });
+});
+
+test('caller-supplied provenance wins over versions derived from runs', () => {
+  const batch = { batchId: '20260101-010203-abcd', synthetic: false, runCount: 1 };
+  const manifest = projectPublicBatch(
+    batch,
+    [fakeRun({ runId: 'a', agentName: 'felan', packageVersion: '0.19.2' })],
+    { provenance: { harnessEvalsVersion: '0.2.8', agentPackageVersions: { felan: '0.20.0' } } },
+  );
+
+  expect(manifest.provenance).toEqual({ harnessEvalsVersion: '0.2.8', agentPackageVersions: { felan: '0.20.0' } });
+});
+
+test('a batch with no recorded agent build reports no provenance at all', () => {
+  const batch = { batchId: '20260101-010203-abcd', synthetic: false, runCount: 1 };
+  const manifest = projectPublicBatch(batch, [fakeRun({ runId: 'a' })]);
+
+  expect(manifest.provenance).toBeUndefined();
+});
+
 test('file public store rejects unsafe keys and supports mutable catalog objects', async () => {
   const root = await mkdtemp(join(tmpdir(), 'harness-evals-public-store-'));
   tempDirs.push(root);

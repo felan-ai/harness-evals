@@ -52,9 +52,17 @@ export interface ScannedTaskRun {
     totalTokens?: number;
     requests?: number;
   };
+  /**
+   * Agent identity. `provider`/`model` prefer what the run declared it would
+   * use and fall back to what the provider billed, so a run that failed before
+   * spending anything is still attributable. `models` stays billing-derived: it
+   * reports every model that actually charged, which can exceed the one declared.
+   */
   provider?: string;
   model?: string;
   models?: string[];
+  thinking?: string;
+  packageVersion?: string;
   assertions?: { total: number; passed: number; failedRequired: number };
   failures?: ScannedFailureSummary;
   metrics?: Record<string, number>;
@@ -290,9 +298,12 @@ async function scanRunDir(
         requests: numberField(rollup?.requests),
       }
       : undefined,
-    provider: byProvider ? Object.keys(byProvider)[0] : undefined,
-    model: models?.[0],
+    provider: stringField(summary?.provider) ?? stringField(startedAgent?.provider)
+      ?? (byProvider ? Object.keys(byProvider)[0] : undefined),
+    model: stringField(summary?.model) ?? stringField(startedAgent?.model) ?? models?.[0],
     models,
+    thinking: stringField(summary?.thinking) ?? stringField(startedAgent?.thinking),
+    packageVersion: stringField(summary?.packageVersion) ?? stringField(startedAgent?.packageVersion),
     assertions,
     failures,
     metrics,
