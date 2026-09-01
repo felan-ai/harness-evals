@@ -397,10 +397,10 @@ test('renderAggregateCsv emits one row per task run with token columns', async (
     } as never,
   ]);
   const [header, row] = csv.split('\n');
-  expect(header).toBe('batchId,caseId,suite,agentName,provider,model,models,thinking,packageVersion,attemptNumber,status,pass,score,durationMs,cost,currency,inputTokens,cachedInputTokens,outputTokens,totalTokens,requests,startedAt,runId');
+  expect(header).toBe('batchId,caseId,suite,agentName,provider,models,attemptNumber,status,pass,score,durationMs,cost,currency,inputTokens,cachedInputTokens,outputTokens,totalTokens,requests,startedAt,runId,model,thinking,packageVersion');
   expect(row).toContain('"pilot, special"');
   expect(row).toContain('m1+m2');
-  expect(row).toContain('m1,m1+m2,max,0.19.2');
+  expect(row).toEndWith('r1,m1,max,0.19.2');
   expect(row).toContain('1.5,USD,10,100,5,115,3');
 });
 

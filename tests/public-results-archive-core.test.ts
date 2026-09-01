@@ -132,6 +132,9 @@ test('CSV and HTML render compact public data with escaped dynamic strings', () 
   expect(csv.split('\n', 1)[0]).not.toContain(',pass,');
   expect(csv).toContain('comparisonId');
   expect(csv).toContain('assertionPassRate');
+  // Identity columns are appended, never inserted: positional consumers of
+  // published CSVs must keep working across harness-evals versions.
+  expect(csv.split('\n', 1)[0]).toEndWith(',requests,thinking,packageVersion');
   const html = renderPublicBatchHtml(manifest);
   expect(html).toContain('&lt;unsafe&gt;');
   expect(html).not.toContain('<title><unsafe>');

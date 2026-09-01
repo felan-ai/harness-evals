@@ -2,9 +2,9 @@ import type { PublicBatchManifest, PublicRunSummary } from './types.js';
 
 const COLUMNS = [
   'runId', 'caseId', 'agentName', 'agentLabel', 'comparisonId', 'suite', 'attemptNumber', 'attempts', 'status', 'startedAt',
-  'durationMs', 'exitCode', 'score', 'assertionPassRate', 'judgeScore', 'verifierReward', 'provider', 'model', 'models', 'thinking', 'packageVersion', 'totalAssertions', 'passedAssertions',
+  'durationMs', 'exitCode', 'score', 'assertionPassRate', 'judgeScore', 'verifierReward', 'provider', 'model', 'models', 'totalAssertions', 'passedAssertions',
   'failedRequired', 'totalCost', 'currency', 'inputTokens', 'outputTokens', 'cachedInputTokens',
-  'reasoningTokens', 'totalTokens', 'requests',
+  'reasoningTokens', 'totalTokens', 'requests', 'thinking', 'packageVersion',
 ] as const;
 
 export function renderPublicBatchCsv(manifest: PublicBatchManifest): string {

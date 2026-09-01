@@ -1,9 +1,9 @@
 import type { AggregateReportData, AggregateTaskRun } from './data.js';
 
 const CSV_COLUMNS = [
-  'batchId', 'caseId', 'suite', 'agentName', 'provider', 'model', 'models', 'thinking', 'packageVersion', 'attemptNumber', 'status', 'pass',
+  'batchId', 'caseId', 'suite', 'agentName', 'provider', 'models', 'attemptNumber', 'status', 'pass',
   'score', 'durationMs', 'cost', 'currency', 'inputTokens', 'cachedInputTokens', 'outputTokens', 'totalTokens', 'requests',
-  'startedAt', 'runId',
+  'startedAt', 'runId', 'model', 'thinking', 'packageVersion',
 ] as const;
 
 export function renderAggregateCsv(runs: readonly AggregateTaskRun[]): string {
@@ -13,10 +13,7 @@ export function renderAggregateCsv(runs: readonly AggregateTaskRun[]): string {
     run.suite ?? '',
     run.agentName,
     run.provider ?? '',
-    run.model ?? '',
     (run.models ?? []).join('+'),
-    run.thinking ?? '',
-    run.packageVersion ?? '',
     run.attemptNumber ?? '',
     run.status,
     run.pass,
@@ -31,6 +28,9 @@ export function renderAggregateCsv(runs: readonly AggregateTaskRun[]): string {
     run.cost?.requests ?? '',
     run.startedAt ?? '',
     run.runId,
+    run.model ?? '',
+    run.thinking ?? '',
+    run.packageVersion ?? '',
   ].map(csvCell).join(','));
   return [CSV_COLUMNS.join(','), ...rows].join('\n');
 }
