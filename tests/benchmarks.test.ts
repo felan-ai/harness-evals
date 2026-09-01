@@ -52,23 +52,38 @@ test('benchmark analyzer reduces trials, macro-averages cases, and computes base
   expect(report.candidate.deltas['cost.total']).toBe(-2);
   expect(report.candidate.state).toBe('eligible');
   expect(report.candidate.cases[0]?.observations['cost.total']).toHaveLength(3);
-  expect(report.gain.cases[0]?.attempts.map((attempt) => attempt.attemptNumber)).toEqual([1, 2, 3]);
-  expect(report.gain).toMatchObject({ averagePercent: -25, minPercent: -100, maxPercent: 50, comparedCases: 2, expectedCases: 2 });
+  expect(report.comparison.cases[0]?.attempts.map((attempt) => attempt.attemptNumber)).toEqual([1, 2, 3]);
+  expect(report.comparison).toMatchObject({
+    averageChangePercent: 25,
+    minChangePercent: -50,
+    maxChangePercent: 100,
+    averageImprovementPercent: -25,
+    minImprovementPercent: -100,
+    maxImprovementPercent: 50,
+    comparedCases: 2,
+    expectedCases: 2,
+  });
+  expect(report.comparison.cases[0]).toMatchObject({ changePercent: 100, improvementPercent: -100 });
   const html = renderBenchmarkIndexHtml([report]);
   expect(html.match(/class="benchmark-row"/g)).toHaveLength(1);
   expect(html).toContain('<h1>Benchmarks</h1>');
-  expect(html).toContain('Average gain -25.0%; range -100.0% to +50.0% across 2 tests');
-  expect(html).toContain('-100.0% to +50.0%');
-  expect(html).toContain('class="gain-range"');
-  expect(html).not.toContain('class="gain-zero"');
-  expect(html).not.toContain('class="gain-average"');
+  expect(html).toContain('Average change +25.0%; range -50.0% to +100.0% across 2 tests; unfavorable');
+  expect(html).toContain('-50.0% to +100.0%');
+  expect(html).toContain('class="change-range"');
+  expect(html).toContain('--range-left:0.0000%;--range-width:100.0000%');
   const detailHtml = renderBenchmarkHtml(report);
   expect(detailHtml).toContain('<h2>Tests</h2>');
   expect(detailHtml.match(/<details class="test-block">/g)).toHaveLength(2);
   expect(detailHtml.match(/<summary class="test-summary"/g)).toHaveLength(2);
+  expect(detailHtml.match(/<\/summary><div class="attempt-list">/g)).toHaveLength(2);
   expect(detailHtml.match(/class="attempt-row"/g)).toHaveLength(6);
   expect(detailHtml).toContain('<span>Attempt 1</span>');
-  expect(renderBenchmarkCsv(report)).toContain('averageGainPercent,minGainPercent,maxGainPercent');
+  expect(detailHtml).not.toContain('<caption>Attempts for');
+  expect(detailHtml).not.toContain('<th scope="col">Attempt</th>');
+  expect(renderBenchmarkCsv(report)).toContain('changePercent,improvementPercent,averageChangePercent,minChangePercent,maxChangePercent');
+  expect(renderBenchmarkCsv(report)).not.toContain('gain');
+  expect(renderBenchmarkJson(report)).toContain('"comparison"');
+  expect(renderBenchmarkJson(report)).not.toContain('"gain"');
 });
 
 test('benchmark analyzer reports incomplete and quality regression arms', () => {
@@ -79,7 +94,7 @@ test('benchmark analyzer reports incomplete and quality regression arms', () => 
   });
   expect(report.baseline.state).toBe('incomplete');
   expect(report.candidate.state).toBe('incomplete');
-  expect(report.gain.averagePercent).toBeUndefined();
+  expect(report.comparison.averageChangePercent).toBeUndefined();
 });
 
 test('benchmark reports identify failed attempts without raw diagnostics', () => {
@@ -95,7 +110,7 @@ test('benchmark reports identify failed attempts without raw diagnostics', () =>
     definition: { ...definition, select: { cases: ['one'] }, trials: 1 },
     runs: [failedBase, timedOutCandidate],
   });
-  const attempt = report.gain.cases[0]?.attempts[0];
+  const attempt = report.comparison.cases[0]?.attempts[0];
   expect(attempt?.baselineQuality).toMatchObject({ status: 'failed', categories: ['assertion'], failedAssertions: ['prewalk-entered', maliciousAssertionId] });
   expect(attempt?.candidateQuality).toMatchObject({ status: 'timeout', categories: ['timeout', 'verifier'] });
   const html = renderBenchmarkHtml(report);
@@ -112,7 +127,7 @@ test('benchmark reports identify failed attempts without raw diagnostics', () =>
   expect(csv).toContain('prewalk-entered');
 });
 
-test('benchmark gains respect maximize objectives', () => {
+test('benchmark improvements respect maximize objectives', () => {
   const maximize = { ...definition, objective: { metric: 'cost.total', goal: 'maximize' as const } };
   const runs = [
     ...[1, 2, 3].map((attempt) => run('base', 'one', attempt, attempt)),
@@ -120,8 +135,15 @@ test('benchmark gains respect maximize objectives', () => {
     ...[1, 2, 3].map((attempt) => run('candidate', 'one', attempt, 2 + attempt)),
     ...[1, 2, 3].map((attempt) => run('candidate', 'two', attempt, 4 + attempt)),
   ];
-  const report = analyzeBenchmark({ id: 'gain', definition: maximize, runs });
-  expect(report.gain).toMatchObject({ averagePercent: 25, minPercent: -50, maxPercent: 100 });
+  const report = analyzeBenchmark({ id: 'maximize-change', definition: maximize, runs });
+  expect(report.comparison).toMatchObject({
+    averageChangePercent: 25,
+    minChangePercent: -50,
+    maxChangePercent: 100,
+    averageImprovementPercent: 25,
+    minImprovementPercent: -50,
+    maxImprovementPercent: 100,
+  });
 });
 
 test('a collapsed test range does not draw a line at the bar endpoint', () => {
@@ -130,8 +152,8 @@ test('a collapsed test range does not draw a line at the bar endpoint', () => {
     ...[1, 2, 3].map((attempt) => run('base', 'one', attempt, 10)),
     ...[1, 2, 3].map((attempt) => run('candidate', 'one', attempt, 5)),
   ];
-  const html = renderBenchmarkIndexHtml([analyzeBenchmark({ id: 'gain', definition: singleCase, runs })]);
-  expect(html).not.toContain('class="gain-range"');
+  const html = renderBenchmarkIndexHtml([analyzeBenchmark({ id: 'change', definition: singleCase, runs })]);
+  expect(html).not.toContain('class="change-range"');
 });
 
 test('quality gates use every trial instead of the objective median', () => {
@@ -146,23 +168,23 @@ test('quality gates use every trial instead of the objective median', () => {
   expect(report.candidate.gateResults[0]?.value).toBeCloseTo(5 / 6);
 });
 
-test('gain direction remains visible when a quality gate fails', () => {
+test('change direction remains visible when a quality gate fails', () => {
   const singleCase = { ...definition, select: { cases: ['one'] } };
   const runs = [
     ...[1, 2, 3].map((attempt) => run('base', 'one', attempt, 10)),
     run('candidate', 'one', 1, 5), run('candidate', 'one', 2, 5), run('candidate', 'one', 3, 5, false),
   ];
-  const report = analyzeBenchmark({ id: 'gain-with-regression', definition: singleCase, runs });
+  const report = analyzeBenchmark({ id: 'change-with-regression', definition: singleCase, runs });
   expect(report.candidate.state).toBe('quality regression');
 
   const html = `${renderBenchmarkIndexHtml([report])}${renderBenchmarkHtml(report)}`;
-  expect(html).toContain('class="gain-value positive">+50.0%');
-  expect(html).toContain('class="gain-chart positive"');
+  expect(html).toContain('class="change-value negative">-50.0%');
+  expect(html).toContain('class="change-chart negative"');
   expect(html).toContain('class="status-text bad">quality regression</span>');
   expect(html).toContain('class="quality bad">Failed');
 });
 
-test('zero gain uses a neutral style', () => {
+test('zero change uses a neutral style', () => {
   const singleCase = { ...definition, select: { cases: ['one'] } };
   const runs = [
     ...[1, 2, 3].map((attempt) => run('base', 'one', attempt, 10)),
@@ -170,8 +192,24 @@ test('zero gain uses a neutral style', () => {
   ];
   const report = analyzeBenchmark({ id: 'no-change', definition: singleCase, runs });
   const html = `${renderBenchmarkIndexHtml([report])}${renderBenchmarkHtml(report)}`;
-  expect(html).toContain('class="gain-value neutral">0.0%');
-  expect(html).toContain('class="gain-chart neutral"');
+  expect(html).toContain('class="change-value neutral">0.0%');
+  expect(html).toContain('class="change-chart neutral"');
+});
+
+test('raw change stays unavailable when the baseline is zero', () => {
+  const singleCase = { ...definition, select: { cases: ['one'] }, trials: 1 };
+  const report = analyzeBenchmark({ id: 'zero-baseline', definition: singleCase, runs: [run('base', 'one', 1, 0), run('candidate', 'one', 1, 1)] });
+  expect(report.candidate.deltas['cost.total']).toBe(1);
+  expect(report.comparison.cases[0]?.changePercent).toBeUndefined();
+  const html = `${renderBenchmarkIndexHtml([report])}${renderBenchmarkHtml(report)}`;
+  expect(html).toContain('Change unavailable');
+  expect(html).toContain('Change vs baseline');
+});
+
+test('tiny raw changes retain their sign and precision', () => {
+  const singleCase = { ...definition, select: { cases: ['one'] }, trials: 1 };
+  const report = analyzeBenchmark({ id: 'tiny-change', definition: singleCase, runs: [run('base', 'one', 1, 100), run('candidate', 'one', 1, 99.99)] });
+  expect(renderBenchmarkHtml(report)).toContain('-0.01%');
 });
 
 test('benchmark reports require matching stamped provenance and exact attempts', () => {
@@ -189,7 +227,7 @@ test('benchmark reports require matching stamped provenance and exact attempts',
   ];
   const report = analyzeBenchmark({ id: 'provenance', definition: benchmarkDefinition, runs: duplicateRuns });
   expect(report.baseline.state).toBe('incomplete');
-  expect(report.gain.averagePercent).toBeUndefined();
+  expect(report.comparison.averageChangePercent).toBeUndefined();
 });
 
 test('missing quality-gate observations make an arm incomplete', () => {
@@ -224,7 +262,6 @@ test('benchmark HTML stays minimal while JSON retains derived provenance', () =>
   const report = analyzeBenchmark({ id: 'cost', definition, runs: [derivedRun] });
   const html = `${renderBenchmarkIndexHtml([report])}${renderBenchmarkHtml(report)}`;
   expect(html).not.toContain('Derived metrics');
-  expect(html).not.toContain('Positive gain is better');
   expect(renderBenchmarkJson(report)).toContain('"derivedRunCount": 1');
 });
 

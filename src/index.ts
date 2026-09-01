@@ -7,11 +7,11 @@ export {
   analyzeBenchmark,
   type BenchmarkArmResult,
   type BenchmarkArmState,
-  type BenchmarkAttemptGain,
+  type BenchmarkAttemptComparison,
   type BenchmarkAttemptObservation,
-  type BenchmarkCaseGain,
+  type BenchmarkCaseComparison,
   type BenchmarkCaseResult,
-  type BenchmarkGainSummary,
+  type BenchmarkComparisonSummary,
   type BenchmarkReportData,
 } from './benchmarks/analyze.js';
 export { renderBenchmarkCsv, renderBenchmarkHtml, renderBenchmarkIndexHtml, renderBenchmarkJson } from './benchmarks/render.js';

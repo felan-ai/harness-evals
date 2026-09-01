@@ -41,30 +41,35 @@ export interface BenchmarkArmResult {
   gateResults: Array<{ metric: string; value?: number; pass: boolean; min?: number; max?: number }>;
 }
 
-export interface BenchmarkCaseGain {
+export interface BenchmarkCaseComparison {
   caseId: string;
   baselineValue?: number;
   candidateValue?: number;
-  gainPercent?: number;
-  attempts: BenchmarkAttemptGain[];
+  changePercent?: number;
+  improvementPercent?: number;
+  attempts: BenchmarkAttemptComparison[];
 }
 
-export interface BenchmarkAttemptGain {
+export interface BenchmarkAttemptComparison {
   attemptNumber: number;
   baselineValue?: number;
   candidateValue?: number;
-  gainPercent?: number;
+  changePercent?: number;
+  improvementPercent?: number;
   baselineQuality?: BenchmarkAttemptQuality;
   candidateQuality?: BenchmarkAttemptQuality;
 }
 
-export interface BenchmarkGainSummary {
-  averagePercent?: number;
-  minPercent?: number;
-  maxPercent?: number;
+export interface BenchmarkComparisonSummary {
+  averageChangePercent?: number;
+  minChangePercent?: number;
+  maxChangePercent?: number;
+  averageImprovementPercent?: number;
+  minImprovementPercent?: number;
+  maxImprovementPercent?: number;
   comparedCases: number;
   expectedCases: number;
-  cases: BenchmarkCaseGain[];
+  cases: BenchmarkCaseComparison[];
 }
 
 export interface BenchmarkReportData {
@@ -74,7 +79,7 @@ export interface BenchmarkReportData {
   expectedTrials: number;
   baseline: BenchmarkArmResult;
   candidate: BenchmarkArmResult;
-  gain: BenchmarkGainSummary;
+  comparison: BenchmarkComparisonSummary;
   warnings: string[];
   runCount: number;
   derivedRunCount: number;
@@ -104,19 +109,19 @@ export function analyzeBenchmark(input: {
     expectedTrials: definition.trials,
     baseline,
     candidate,
-    gain: summarizeGain(definition, caseIds, baseline, candidate),
+    comparison: summarizeComparison(definition, caseIds, baseline, candidate),
     warnings,
     runCount: selectedRuns.length,
     derivedRunCount: selectedRuns.filter((run) => run.metricsSource === 'historical-derived').length,
   };
 }
 
-function summarizeGain(
+function summarizeComparison(
   definition: BenchmarkDefinition,
   caseIds: readonly string[],
   baseline: BenchmarkArmResult,
   candidate: BenchmarkArmResult,
-): BenchmarkGainSummary {
+): BenchmarkComparisonSummary {
   const metric = definition.objective.metric;
   const cases = caseIds.map((caseId) => {
     const baselineCase = baseline.cases.find((item) => item.caseId === caseId);
@@ -127,6 +132,8 @@ function summarizeGain(
     const candidateAttempts = candidateCase?.attempts[metric] ?? [];
     const baselineQualityAttempts = baselineCase?.qualityAttempts ?? [];
     const candidateQualityAttempts = candidateCase?.qualityAttempts ?? [];
+    const changePercent = percentageChange(baselineValue, candidateValue);
+    const improvementPercent = percentageImprovement(definition.objective.goal, changePercent);
     const attemptNumbers = [...new Set([
       ...baselineAttempts.map((attempt) => attempt.attemptNumber),
       ...candidateAttempts.map((attempt) => attempt.attemptNumber),
@@ -137,15 +144,19 @@ function summarizeGain(
       caseId,
       baselineValue,
       candidateValue,
-      gainPercent: percentageGain(definition.objective.goal, baselineValue, candidateValue),
+      changePercent,
+      improvementPercent,
       attempts: attemptNumbers.map((attemptNumber) => {
         const baselineAttempt = baselineAttempts.find((attempt) => attempt.attemptNumber === attemptNumber)?.value;
         const candidateAttempt = candidateAttempts.find((attempt) => attempt.attemptNumber === attemptNumber)?.value;
+        const attemptChangePercent = percentageChange(baselineAttempt, candidateAttempt);
+        const attemptImprovementPercent = percentageImprovement(definition.objective.goal, attemptChangePercent);
         return {
           attemptNumber,
           baselineValue: baselineAttempt,
           candidateValue: candidateAttempt,
-          gainPercent: percentageGain(definition.objective.goal, baselineAttempt, candidateAttempt),
+          changePercent: attemptChangePercent,
+          improvementPercent: attemptImprovementPercent,
           baselineQuality: baselineAttempts.find((attempt) => attempt.attemptNumber === attemptNumber)?.quality
             ?? baselineQualityAttempts.find((attempt) => attempt.attemptNumber === attemptNumber),
           candidateQuality: candidateAttempts.find((attempt) => attempt.attemptNumber === attemptNumber)?.quality
@@ -154,15 +165,22 @@ function summarizeGain(
       }),
     };
   });
-  const values = cases.map((item) => item.gainPercent).filter((value): value is number => value !== undefined);
-  const complete = values.length === caseIds.length && caseIds.length > 0 && caseIds.every((caseId) =>
+  const changeValues = cases.map((item) => item.changePercent).filter((value): value is number => value !== undefined);
+  const improvementValues = cases.map((item) => item.improvementPercent).filter((value): value is number => value !== undefined);
+  const complete = changeValues.length === caseIds.length && improvementValues.length === caseIds.length && caseIds.length > 0 && caseIds.every((caseId) =>
     hasExpectedAttempts(baseline.cases.find((item) => item.caseId === caseId), metric, definition.trials)
     && hasExpectedAttempts(candidate.cases.find((item) => item.caseId === caseId), metric, definition.trials));
+  const averageImprovementPercent = complete ? reduce(improvementValues, 'mean') : undefined;
+  const minImprovementPercent = complete ? Math.min(...improvementValues) : undefined;
+  const maxImprovementPercent = complete ? Math.max(...improvementValues) : undefined;
   return {
-    averagePercent: complete ? reduce(values, 'mean') : undefined,
-    minPercent: complete ? Math.min(...values) : undefined,
-    maxPercent: complete ? Math.max(...values) : undefined,
-    comparedCases: values.length,
+    averageChangePercent: complete ? reduce(changeValues, 'mean') : undefined,
+    minChangePercent: complete ? Math.min(...changeValues) : undefined,
+    maxChangePercent: complete ? Math.max(...changeValues) : undefined,
+    averageImprovementPercent,
+    minImprovementPercent,
+    maxImprovementPercent,
+    comparedCases: changeValues.length,
     expectedCases: caseIds.length,
     cases,
   };
@@ -248,12 +266,18 @@ function delta(value: number | undefined, baseline: number | undefined): number 
   return value !== undefined && baseline !== undefined ? value - baseline : undefined;
 }
 
-function percentageGain(
-  goal: BenchmarkDefinition['objective']['goal'],
+function percentageChange(
   baseline: number | undefined,
   candidate: number | undefined,
 ): number | undefined {
   if (baseline === undefined || candidate === undefined || baseline === 0) return undefined;
-  const change = (candidate - baseline) / Math.abs(baseline) * 100;
+  return (candidate - baseline) / Math.abs(baseline) * 100;
+}
+
+function percentageImprovement(
+  goal: BenchmarkDefinition['objective']['goal'],
+  change: number | undefined,
+): number | undefined {
+  if (change === undefined) return undefined;
   return goal === 'maximize' ? change : -change;
 }

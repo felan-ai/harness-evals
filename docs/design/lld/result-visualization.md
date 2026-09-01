@@ -35,6 +35,12 @@ in test disclosures and attempt rows so an aggregate quality regression can be
 traced without embedding raw errors, prompts, logs, commands, or verifier
 output.
 
+Benchmark comparisons preserve both meanings of percentage movement: raw
+`changePercent` is `(candidate - baseline) / abs(baseline)`, while
+`improvementPercent` interprets that movement using the objective's
+`minimize`/`maximize` goal. User-facing reports label and display the raw
+change.
+
 Public archive reports use a separate case-centric layout: suites contain
 cases, and each case shows only the comparison identities that participated in
 that case. An agent profile may use an authored `comparisonId` to remain

@@ -10,8 +10,9 @@ export function renderBenchmarkCsv(report: BenchmarkReportData): string {
     'baselineStatus', 'candidateStatus', 'baselineFailureCategories', 'candidateFailureCategories',
     'baselineFailedAssertions', 'candidateFailedAssertions',
     'baselineObservations', 'candidateObservations', 'baselineValue',
-    'candidateValue', 'gainPercent', 'averageGainPercent', 'minGainPercent',
-    'maxGainPercent',
+    'candidateValue', 'changePercent', 'improvementPercent',
+    'averageChangePercent', 'minChangePercent', 'maxChangePercent',
+    'averageImprovementPercent', 'minImprovementPercent', 'maxImprovementPercent',
   ]];
   const objective = report.definition.objective.metric;
   for (const caseId of report.cases) {
@@ -19,7 +20,7 @@ export function renderBenchmarkCsv(report: BenchmarkReportData): string {
     const candidate = report.candidate.cases.find((item) => item.caseId === caseId);
     const metrics = new Set([...Object.keys(baseline?.observations ?? {}), ...Object.keys(candidate?.observations ?? {})]);
     for (const metric of metrics) {
-      const gain = metric === objective ? report.gain.cases.find((item) => item.caseId === caseId)?.gainPercent : undefined;
+      const comparison = metric === objective ? report.comparison.cases.find((item) => item.caseId === caseId) : undefined;
       rows.push([
         'test',
         report.id,
@@ -33,22 +34,26 @@ export function renderBenchmarkCsv(report: BenchmarkReportData): string {
         JSON.stringify(candidate?.observations[metric] ?? []),
         String(baseline?.values[metric] ?? ''),
         String(candidate?.values[metric] ?? ''),
-        String(gain ?? ''),
-        String(metric === objective ? report.gain.averagePercent ?? '' : ''),
-        String(metric === objective ? report.gain.minPercent ?? '' : ''),
-        String(metric === objective ? report.gain.maxPercent ?? '' : ''),
+        String(comparison?.changePercent ?? ''),
+        String(comparison?.improvementPercent ?? ''),
+        String(metric === objective ? report.comparison.averageChangePercent ?? '' : ''),
+        String(metric === objective ? report.comparison.minChangePercent ?? '' : ''),
+        String(metric === objective ? report.comparison.maxChangePercent ?? '' : ''),
+        String(metric === objective ? report.comparison.averageImprovementPercent ?? '' : ''),
+        String(metric === objective ? report.comparison.minImprovementPercent ?? '' : ''),
+        String(metric === objective ? report.comparison.maxImprovementPercent ?? '' : ''),
       ]);
     }
-    const gain = report.gain.cases.find((item) => item.caseId === caseId);
-    for (const attempt of gain?.attempts ?? []) {
+    const comparison = report.comparison.cases.find((item) => item.caseId === caseId);
+    for (const attempt of comparison?.attempts ?? []) {
       rows.push([
         'attempt', report.id, caseId, String(attempt.attemptNumber), objective,
         report.baseline.comparisonId, report.candidate.comparisonId,
         attempt.baselineQuality?.status ?? '', attempt.candidateQuality?.status ?? '',
         categories(attempt.baselineQuality), categories(attempt.candidateQuality),
         attempt.baselineQuality?.failedAssertions?.join('|') ?? '', attempt.candidateQuality?.failedAssertions?.join('|') ?? '',
-        '', '', String(attempt.baselineValue ?? ''), String(attempt.candidateValue ?? ''), String(attempt.gainPercent ?? ''),
-        '', '', '',
+        '', '', String(attempt.baselineValue ?? ''), String(attempt.candidateValue ?? ''),
+        String(attempt.changePercent ?? ''), String(attempt.improvementPercent ?? ''), '', '', '', '', '', '',
       ]);
     }
   }
@@ -58,63 +63,70 @@ export function renderBenchmarkCsv(report: BenchmarkReportData): string {
 export function renderBenchmarkHtml(report: BenchmarkReportData): string {
   const objective = report.definition.objective.metric;
   const states = comparisonStates(report);
-  const tests = report.gain.cases.map((item) => {
-    const attempts = item.attempts.map((attempt) => `<div class="attempt-row"><span>Attempt ${attempt.attemptNumber}</span><span>${formatMetric(objective, attempt.baselineValue)}<small class="quality ${qualityClass(attempt.baselineQuality)}">${escape(formatQuality(attempt.baselineQuality))}</small></span><span>${formatMetric(objective, attempt.candidateValue)}<small class="quality ${qualityClass(attempt.candidateQuality)}">${escape(formatQuality(attempt.candidateQuality))}</small></span><span class="gain-value ${gainClass(attempt.gainPercent)}">${formatPercent(attempt.gainPercent)}</span></div>`).join('');
+  const objectiveLabel = `${metricLabel(objective)} · ${report.definition.objective.goal}`;
+  const overallAssessment = assessment(report, report.comparison.averageImprovementPercent);
+  const tests = report.comparison.cases.map((item) => {
+    const attempts = item.attempts.map((attempt) => `<div class="attempt-row"><span>Attempt ${attempt.attemptNumber}</span><span>${formatMetric(objective, attempt.baselineValue)}<small class="quality ${qualityClass(attempt.baselineQuality)}">${escape(formatQuality(attempt.baselineQuality))}</small></span><span>${formatMetric(objective, attempt.candidateValue)}<small class="quality ${qualityClass(attempt.candidateQuality)}">${escape(formatQuality(attempt.candidateQuality))}</small></span><span class="change-value ${changeClass(report, attempt.improvementPercent)}">${formatPercent(attempt.changePercent)}</span><span>${escape(formatAssessment(assessmentForQualities(report, attempt.improvementPercent, [attempt.baselineQuality, attempt.candidateQuality])))}</span></div>`).join('');
     const baselineQuality = item.attempts.map((attempt) => attempt.baselineQuality).filter((quality): quality is BenchmarkAttemptQuality => quality !== undefined);
     const candidateQuality = item.attempts.map((attempt) => attempt.candidateQuality).filter((quality): quality is BenchmarkAttemptQuality => quality !== undefined);
-    const label = `${item.caseId}: baseline ${formatMetric(objective, item.baselineValue)}, ${formatQualitySummary(baselineQuality)}; candidate ${formatMetric(objective, item.candidateValue)}, ${formatQualitySummary(candidateQuality)}; gain ${formatPercent(item.gainPercent)}`;
-    return `<details class="test-block"><summary class="test-summary" aria-label="${escape(label)}"><span class="test-name">${escape(item.caseId)}</span><span>${formatMetric(objective, item.baselineValue)}<small class="quality ${qualityClassForList(baselineQuality)}">${escape(formatQualitySummary(baselineQuality))}</small></span><span>${formatMetric(objective, item.candidateValue)}<small class="quality ${qualityClassForList(candidateQuality)}">${escape(formatQualitySummary(candidateQuality))}</small></span><span class="gain-value ${gainClass(item.gainPercent)}">${formatPercent(item.gainPercent)}</span></summary><div class="attempt-list">${attempts}</div></details>`;
+    const itemAssessment = assessmentForQualities(report, item.improvementPercent, [...baselineQuality, ...candidateQuality]);
+    const label = `${item.caseId}: baseline ${formatMetric(objective, item.baselineValue)}, ${formatQualitySummary(baselineQuality)}; candidate ${formatMetric(objective, item.candidateValue)}, ${formatQualitySummary(candidateQuality)}; raw change ${formatPercent(item.changePercent)}, ${formatAssessment(itemAssessment)}`;
+    return `<details class="test-block"><summary class="test-summary" aria-label="${escape(label)}"><span class="test-name">${escape(item.caseId)}</span><span>${formatMetric(objective, item.baselineValue)}<small class="quality ${qualityClassForList(baselineQuality)}">${escape(formatQualitySummary(baselineQuality))}</small></span><span>${formatMetric(objective, item.candidateValue)}<small class="quality ${qualityClassForList(candidateQuality)}">${escape(formatQualitySummary(candidateQuality))}</small></span><span class="change-value ${changeClass(report, item.improvementPercent)}">${formatPercent(item.changePercent)}</span><span>${escape(formatAssessment(itemAssessment))}</span></summary><div class="attempt-list">${attempts}</div></details>`;
   }).join('');
   const status = renderStatus(states);
   const reducer = capitalize(report.definition.aggregation.trials);
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(report.definition.label)}</title><style>${styles()}</style></head><body><main><a class="back" href="../index.html">← Benchmarks</a><header class="detail-header"><h1>${escape(report.definition.label)}</h1><p class="pair">${escape(report.candidate.comparisonId)} vs ${escape(report.baseline.comparisonId)}</p><div class="result-line"><span class="result-stat"><strong class="gain-value ${gainClass(report.gain.averagePercent)}">${formatPercent(report.gain.averagePercent)}</strong><span>average</span></span><span class="separator">·</span><span class="result-stat"><strong>${formatRange(report.gain.minPercent, report.gain.maxPercent)}</strong><span>range</span></span>${status}</div></header><section class="data-section"><h2>Arms</h2><table><thead><tr><th>Arm</th><th>Runs</th><th>${escape(metricLabel(objective))}</th><th>Outcome</th><th>Delta</th></tr></thead><tbody><tr><th>${escape(report.baseline.comparisonId)}</th><td>${report.baseline.actualRuns}/${report.baseline.expectedRuns}</td><td>${formatMetric(objective, report.baseline.values[objective])}</td><td>${escape(formatQualitySummary(report.gain.cases.flatMap((item) => item.attempts.map((attempt) => attempt.baselineQuality).filter((quality): quality is BenchmarkAttemptQuality => quality !== undefined))))}</td><td>—</td></tr><tr><th>${escape(report.candidate.comparisonId)}</th><td>${report.candidate.actualRuns}/${report.candidate.expectedRuns}</td><td>${formatMetric(objective, report.candidate.values[objective])}</td><td>${escape(formatQualitySummary(report.gain.cases.flatMap((item) => item.attempts.map((attempt) => attempt.candidateQuality).filter((quality): quality is BenchmarkAttemptQuality => quality !== undefined))))}</td><td>${formatMetric(objective, report.candidate.deltas[objective], true)}</td></tr></tbody></table></section><section class="data-section"><h2>Tests</h2><div class="test-list"><div class="test-columns" aria-hidden="true"><span>Test</span><span>Baseline (${reducer})</span><span>Candidate (${reducer})</span><span>Gain</span></div>${tests || '<p class="empty-list">No tests.</p>'}</div></section></main></body></html>\n`;
+  const quality = report.comparison.cases.flatMap((item) => item.attempts.map((attempt) => attempt.baselineQuality ?? attempt.candidateQuality).filter((value): value is BenchmarkAttemptQuality => value !== undefined));
+  const direction = report.definition.objective.goal === 'minimize' ? 'lower' : 'higher';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(report.definition.label)}</title><style>${styles()}</style></head><body><main><a class="back" href="../index.html">← Benchmarks</a><header class="detail-header"><h1>${escape(report.definition.label)}</h1><p class="pair">${escape(report.candidate.comparisonId)} vs ${escape(report.baseline.comparisonId)}</p><p class="objective">${escape(objectiveLabel)} · ${direction} is better</p><div class="result-line"><span class="result-stat"><strong class="change-value ${changeClass(report, report.comparison.averageImprovementPercent)}">${formatPercent(report.comparison.averageChangePercent)}</strong><span>average raw change · ${escape(formatAssessment(overallAssessment))}</span></span><span class="separator">·</span><span class="result-stat"><strong>${formatRange(report.comparison.minChangePercent, report.comparison.maxChangePercent)}</strong><span>range</span></span>${status}</div>${report.baseline.state === 'quality regression' || report.candidate.state === 'quality regression' ? '<p class="quality-warning">Quality regression — metric change shown for diagnosis; it is not a success signal.</p>' : ''}</header><section class="data-section"><h2>Arms</h2><table><caption>Benchmark arms</caption><thead><tr><th scope="col">Arm</th><th scope="col">Runs</th><th scope="col">${escape(objectiveLabel)}</th><th scope="col">Outcome</th><th scope="col">Absolute change</th><th scope="col">Assessment</th></tr></thead><tbody><tr><th scope="row">${escape(report.baseline.comparisonId)}</th><td>${report.baseline.actualRuns}/${report.baseline.expectedRuns}</td><td>${formatMetric(objective, report.baseline.values[objective])}</td><td>${escape(formatQualitySummary(report.comparison.cases.flatMap((item) => item.attempts.map((attempt) => attempt.baselineQuality).filter((quality): quality is BenchmarkAttemptQuality => quality !== undefined))))}</td><td>—</td><td>Baseline</td></tr><tr><th scope="row">${escape(report.candidate.comparisonId)}</th><td>${report.candidate.actualRuns}/${report.candidate.expectedRuns}</td><td>${formatMetric(objective, report.candidate.values[objective])}</td><td>${escape(formatQualitySummary(report.comparison.cases.flatMap((item) => item.attempts.map((attempt) => attempt.candidateQuality).filter((quality): quality is BenchmarkAttemptQuality => quality !== undefined))))}</td><td class="change-value ${changeClass(report, report.comparison.averageImprovementPercent)}">${formatMetric(objective, report.candidate.deltas[objective], true)}</td><td>${escape(formatAssessment(assessmentForQualities(report, report.comparison.averageImprovementPercent, quality)))}</td></tr></tbody></table></section><section class="data-section"><h2>Tests</h2><div class="test-list"><div class="test-columns"><span>Test</span><span>Baseline (${reducer})</span><span>Candidate (${reducer})</span><span>Raw change</span><span>Assessment</span></div>${tests || '<p class="empty-list">No tests.</p>'}</div></section></main></body></html>\n`;
 }
 
 export function renderBenchmarkIndexHtml(reports: readonly BenchmarkReportData[]): string {
-  const scale = gainScale(reports);
+  const scale = changeScale(reports);
   const rows = reports.map((report) => renderBenchmarkRow(report, scale)).join('');
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Benchmarks</title><style>${styles()}</style></head><body><main class="index"><header><h1>Benchmarks</h1></header><section class="benchmark-list"><div class="benchmark-columns" aria-hidden="true"><span>Benchmark</span><span class="gain-heading">Gain</span><span>Range</span></div>${rows || '<p class="empty-list">No benchmarks.</p>'}</section></main></body></html>\n`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Benchmarks</title><style>${styles()}</style></head><body><main class="index"><header><h1>Benchmarks</h1></header><section class="benchmark-list"><div class="benchmark-columns"><span>Benchmark</span><span class="change-heading">Change vs baseline</span><span>Range</span></div>${rows || '<p class="empty-list">No benchmarks.</p>'}</section></main></body></html>\n`;
 }
 
-interface GainScale {
+interface ChangeScale {
   min: number;
   max: number;
 }
 
-function renderBenchmarkRow(report: BenchmarkReportData, scale: GainScale): string {
+function renderBenchmarkRow(report: BenchmarkReportData, scale: ChangeScale): string {
   const states = comparisonStates(report);
-  const average = report.gain.averagePercent;
-  const minimum = report.gain.minPercent;
-  const maximum = report.gain.maxPercent;
-  const chart = gainChart(average, minimum, maximum, scale, report.gain.expectedCases);
-  return `<article class="benchmark-row" data-benchmark-id="${escape(report.id)}"><div class="benchmark-name"><a href="${encodeURIComponent(report.id)}/results.html">${escape(report.definition.label)}</a><div class="benchmark-meta"><span>${escape(report.candidate.comparisonId)} vs ${escape(report.baseline.comparisonId)}</span>${renderStatus(states)}</div></div>${chart}<strong class="gain-value ${gainClass(average)}">${formatPercent(average)}</strong><span class="range-value">${formatRange(minimum, maximum)}</span></article>`;
+  const average = report.comparison.averageChangePercent;
+  const minimum = report.comparison.minChangePercent;
+  const maximum = report.comparison.maxChangePercent;
+  const chart = changeChart(report, average, minimum, maximum, scale, report.comparison.expectedCases);
+  const assessmentText = formatAssessment(assessment(report, report.comparison.averageImprovementPercent));
+  return `<article class="benchmark-row" data-benchmark-id="${escape(report.id)}"><div class="benchmark-name"><a href="${encodeURIComponent(report.id)}/results.html">${escape(report.definition.label)}</a><div class="benchmark-meta"><span>${escape(report.candidate.comparisonId)} vs ${escape(report.baseline.comparisonId)}</span>${renderStatus(states)}</div></div>${chart}<strong class="change-value ${changeClass(report, report.comparison.averageImprovementPercent)}">${formatPercent(average)}<small>${escape(assessmentText)}</small></strong><span class="range-value">${formatRange(minimum, maximum)}</span></article>`;
 }
 
-function gainChart(
+function changeChart(
+  report: BenchmarkReportData,
   average: number | undefined,
   minimum: number | undefined,
   maximum: number | undefined,
-  scale: GainScale,
+  scale: ChangeScale,
   tests: number,
 ): string {
   if (average === undefined || minimum === undefined || maximum === undefined) {
-    return '<div class="gain-chart unavailable" role="img" aria-label="Gain unavailable">—</div>';
+    return '<div class="change-chart unavailable" role="img" aria-label="Change unavailable">—</div>';
   }
-  const zero = gainPosition(0, scale);
-  const averagePosition = gainPosition(average, scale);
-  const minimumPosition = gainPosition(minimum, scale);
-  const maximumPosition = gainPosition(maximum, scale);
+  const zero = changePosition(0, scale);
+  const averagePosition = changePosition(average, scale);
+  const minimumPosition = changePosition(minimum, scale);
+  const maximumPosition = changePosition(maximum, scale);
   const left = Math.min(zero, averagePosition);
   const width = Math.abs(averagePosition - zero);
   const rangeLeft = Math.min(minimumPosition, maximumPosition);
   const rangeWidth = Math.abs(maximumPosition - minimumPosition);
-  const label = `Average gain ${formatPercent(average)}; range ${formatPercent(minimum)} to ${formatPercent(maximum)} across ${tests} ${tests === 1 ? 'test' : 'tests'}`;
-  const range = rangeWidth > 0 ? '<span class="gain-range"></span>' : '';
-  return `<div class="gain-chart ${gainClass(average)}" role="img" aria-label="${escape(label)}" style="--bar-left:${decimal(left)}%;--bar-width:${decimal(width)}%;--range-left:${decimal(rangeLeft)}%;--range-width:${decimal(rangeWidth)}%"><span class="gain-track"></span><span class="gain-bar"></span>${range}</div>`;
+  const label = `Average change ${formatPercent(average)}; range ${formatPercent(minimum)} to ${formatPercent(maximum)} across ${tests} ${tests === 1 ? 'test' : 'tests'}; ${formatAssessment(assessment(report, report.comparison.averageImprovementPercent))}`;
+  const range = rangeWidth > 0 ? '<span class="change-range"></span>' : '';
+  return `<div class="change-chart ${changeClass(report, report.comparison.averageImprovementPercent)}" role="img" aria-label="${escape(label)}" style="--bar-left:${decimal(left)}%;--bar-width:${decimal(width)}%;--range-left:${decimal(rangeLeft)}%;--range-width:${decimal(rangeWidth)}%"><span class="change-track"></span><span class="change-bar"></span>${range}</div>`;
 }
 
-function gainScale(reports: readonly BenchmarkReportData[]): GainScale {
-  const values = reports.flatMap((report) => [report.gain.averagePercent, report.gain.minPercent, report.gain.maxPercent])
+function changeScale(reports: readonly BenchmarkReportData[]): ChangeScale {
+  const values = reports.flatMap((report) => [report.comparison.averageChangePercent, report.comparison.minChangePercent, report.comparison.maxChangePercent])
     .filter((value): value is number => value !== undefined && Number.isFinite(value));
   if (values.length === 0) return { min: 0, max: 100 };
   const rawMin = Math.min(0, ...values);
@@ -127,7 +139,7 @@ function gainScale(reports: readonly BenchmarkReportData[]): GainScale {
   return min === max ? { min: min - step, max: max + step } : { min, max };
 }
 
-function gainPosition(value: number, scale: GainScale): number {
+function changePosition(value: number, scale: ChangeScale): number {
   return Math.max(0, Math.min(100, (value - scale.min) / (scale.max - scale.min) * 100));
 }
 
@@ -136,7 +148,7 @@ function comparisonStates(report: BenchmarkReportData): [BenchmarkArmState, ...B
   const states = (['quality regression', 'incomplete', 'metric unavailable', 'inconclusive'] as const)
     .filter((state) => armStates.includes(state));
   if (states.length > 0) return states as [BenchmarkArmState, ...BenchmarkArmState[]];
-  return [report.gain.averagePercent === undefined ? 'metric unavailable' : 'eligible'];
+  return [report.comparison.averageChangePercent === undefined ? 'metric unavailable' : 'eligible'];
 }
 
 function renderStatus(states: readonly BenchmarkArmState[]): string {
@@ -160,8 +172,8 @@ function formatMetric(metric: string, value: number | undefined, signed = false)
 
 function formatPercent(value: number | undefined): string {
   if (value === undefined) return '—';
-  const normalized = Math.abs(value) < 0.05 ? 0 : value;
-  return `${normalized > 0 ? '+' : ''}${normalized.toFixed(1)}%`;
+  const precision = Math.abs(value) < 0.1 && value !== 0 ? 2 : 1;
+  return `${value > 0 ? '+' : ''}${value.toFixed(precision)}%`;
 }
 
 function formatRange(minimum: number | undefined, maximum: number | undefined): string {
@@ -208,9 +220,27 @@ function qualityClassForList(qualities: readonly BenchmarkAttemptQuality[]): str
   return qualities.every((quality) => quality.status === 'passed' && quality.pass) ? 'ok' : 'bad';
 }
 
-function gainClass(value: number | undefined): 'positive' | 'negative' | 'neutral' {
-  if (value === undefined || Math.abs(value) < 0.05) return 'neutral';
-  return value > 0 ? 'positive' : 'negative';
+type ChangeAssessment = 'favorable' | 'unfavorable' | 'no change' | 'unavailable' | 'quality regression';
+
+function assessment(report: BenchmarkReportData, improvement: number | undefined): ChangeAssessment {
+  return assessmentForQualities(report, improvement, []);
+}
+
+function assessmentForQualities(report: BenchmarkReportData, improvement: number | undefined, qualities: readonly (BenchmarkAttemptQuality | undefined)[]): ChangeAssessment {
+  if (report.baseline.state === 'quality regression' || report.candidate.state === 'quality regression'
+    || qualities.some((quality) => quality !== undefined && (!quality.pass || quality.status !== 'passed'))) return 'quality regression';
+  if (improvement === undefined) return 'unavailable';
+  if (Math.abs(improvement) < 0.05) return 'no change';
+  return improvement > 0 ? 'favorable' : 'unfavorable';
+}
+
+function formatAssessment(value: ChangeAssessment): string {
+  return value;
+}
+
+function changeClass(report: BenchmarkReportData, improvement: number | undefined): 'positive' | 'negative' | 'neutral' {
+  const value = assessment(report, improvement);
+  return value === 'favorable' ? 'positive' : value === 'unfavorable' || value === 'quality regression' ? 'negative' : 'neutral';
 }
 
 function capitalize(value: string): string {
@@ -258,16 +288,16 @@ h2 { margin: 0 0 14px; font-size: 19px; }
 .result-stat { display: inline-flex; align-items: baseline; gap: 7px; white-space: nowrap; }
 .result-stat strong { color: var(--ink); font-size: 16px; }
 .result-stat:first-child strong { font-size: 26px; }
-.result-line .gain-value.positive { color: var(--positive); }
-.result-line .gain-value.negative { color: var(--negative); }
-.result-line .gain-value.neutral { color: var(--muted); }
+.result-line .change-value.positive { color: var(--positive); }
+.result-line .change-value.negative { color: var(--negative); }
+.result-line .change-value.neutral { color: var(--muted); }
 .separator { margin: 0 3px; color: #a2a7b0; }
 .status-text { color: var(--muted); font-size: 12px; }
 .status-text.bad { color: var(--negative); }
 .benchmark-list { border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
 .benchmark-columns, .benchmark-row { display: grid; grid-template-columns: minmax(230px, 1.35fr) minmax(320px, 2fr) 90px 160px; gap: 18px; align-items: center; }
 .benchmark-columns { padding: 10px 14px; color: var(--muted); border-bottom: 1px solid var(--rule); font: 600 10px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
-.gain-heading { grid-column: 2 / 4; }
+.change-heading { grid-column: 2 / 4; }
 .benchmark-row { min-height: 72px; padding: 13px 14px; border-bottom: 1px solid var(--rule); }
 .benchmark-row:last-child { border-bottom: 0; }
 .benchmark-name { min-width: 0; }
@@ -275,18 +305,21 @@ h2 { margin: 0 0 14px; font-size: 19px; }
 .benchmark-name > a:hover { text-decoration: underline; }
 .benchmark-meta { display: flex; gap: 6px; min-width: 0; color: var(--muted); font: 11px ui-monospace, monospace; }
 .benchmark-meta > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gain-chart { position: relative; height: 24px; }
-.gain-track { position: absolute; inset: 11px 0 auto; height: 2px; background: var(--track); }
-.gain-bar { position: absolute; top: 7px; left: var(--bar-left); width: max(2px, var(--bar-width)); height: 10px; background: var(--positive-fill); }
-.gain-chart.negative .gain-bar { background: var(--negative-fill); }
-.gain-chart.neutral .gain-bar { background: var(--muted); }
-.gain-range { position: absolute; top: 3px; left: var(--range-left); width: max(1px, var(--range-width)); height: 18px; border-left: 1px solid #596170; border-right: 1px solid #596170; }
-.gain-range::after { content: ""; position: absolute; top: 8px; left: 0; width: 100%; border-top: 1px solid #596170; }
-.gain-chart.unavailable { display: flex; align-items: center; color: var(--muted); }
-.gain-value { font-variant-numeric: tabular-nums; }
-.gain-value.positive { color: var(--positive); }
-.gain-value.negative { color: var(--negative); }
-.gain-value.neutral, .range-value { color: var(--muted); }
+.change-chart { position: relative; height: 24px; }
+.change-track { position: absolute; inset: 11px 0 auto; height: 2px; background: var(--track); }
+.change-bar { position: absolute; top: 7px; left: var(--bar-left); width: max(2px, var(--bar-width)); height: 10px; background: var(--positive-fill); }
+.change-chart.negative .change-bar { background: var(--negative-fill); }
+.change-chart.neutral .change-bar { background: var(--muted); }
+.change-range { position: absolute; top: 3px; left: var(--range-left); width: max(1px, var(--range-width)); height: 18px; border-left: 1px solid #596170; border-right: 1px solid #596170; }
+.change-range::after { content: ""; position: absolute; top: 8px; left: 0; width: 100%; border-top: 1px solid #596170; }
+.change-chart.unavailable { display: flex; align-items: center; color: var(--muted); }
+.change-value { font-variant-numeric: tabular-nums; }
+.change-value small { display: block; font-size: 10px; font-weight: 500; }
+.objective { margin: 7px 0 0; color: var(--muted); font-size: 12px; }
+.quality-warning { margin: 16px 0 0; color: var(--negative); font-size: 12px; }
+.change-value.positive { color: var(--positive); }
+.change-value.negative { color: var(--negative); }
+.change-value.neutral, .range-value { color: var(--muted); }
 .range-value { font-size: 12px; font-variant-numeric: tabular-nums; }
 .data-section { margin-top: 0; padding: 26px 0; border-top: 1px solid var(--rule); }
 table { width: 100%; border-collapse: collapse; }
@@ -294,9 +327,9 @@ th, td { padding: 10px 8px; border-bottom: 1px solid var(--rule); text-align: le
 thead th { color: var(--muted); font: 600 10px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
 tbody th { font-weight: 600; }
 .test-list { overflow-x: auto; border-top: 1px solid var(--rule); }
-.test-columns, .test-summary, .attempt-row { display: grid; grid-template-columns: minmax(280px, 2fr) repeat(3, minmax(125px, 1fr)); gap: 16px; align-items: center; min-width: 720px; }
+.test-columns, .test-summary, .attempt-row { display: grid; grid-template-columns: minmax(250px, 2fr) repeat(4, minmax(125px, 1fr)); gap: 16px; align-items: center; min-width: 860px; }
 .test-columns { padding: 10px 12px; color: var(--muted); border-bottom: 1px solid var(--rule); font: 600 10px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
-.test-block { min-width: 720px; border-bottom: 1px solid var(--rule); }
+.test-block { min-width: 860px; border-bottom: 1px solid var(--rule); }
 .test-block:last-child { border-bottom: 0; }
 .test-summary { padding: 12px; cursor: pointer; list-style: none; }
 .test-summary::-webkit-details-marker { display: none; }
@@ -319,7 +352,7 @@ tbody th { font-weight: 600; }
   .benchmark-columns { display: none; }
   .benchmark-row { grid-template-columns: 1fr 78px; gap: 10px; min-height: 108px; }
   .benchmark-name { grid-column: 1 / 3; }
-  .gain-chart { grid-column: 1 / 3; }
+  .change-chart { grid-column: 1 / 3; }
   .range-value { display: none; }
 }
 `;

@@ -252,10 +252,21 @@ candidate is not eligible when required quality regresses or observations are
 missing.
 
 Each benchmark has exactly two arms. The combined report renders one row per
-benchmark: a direction-aware bar for the mean percentage gain across cases and
-a whisker spanning the minimum and maximum case gains. Positive gain always
-means the candidate improved the declared objective, whether that objective is
-minimized or maximized.
+benchmark: a bar for the mean **raw percentage change** (`candidate - baseline`)
+and a whisker spanning the minimum and maximum case changes. A decrease is
+shown with a minus sign and an increase with a plus sign. The report separately
+labels the change as favorable or unfavorable using the declared objective goal
+(`minimize` or `maximize`); quality-regressed comparisons are marked as not
+credited rather than celebrated as improvements.
+
+JSON stores case and aggregate values under `comparison`; CSV exposes the same
+explicit `changePercent` and `improvementPercent` fields. The aggregate
+equivalents are
+`averageChangePercent`/`minChangePercent`/`maxChangePercent` and
+`averageImprovementPercent`/`minImprovementPercent`/`maxImprovementPercent`.
+Secondary metrics are reported as absolute values and observations; because
+they do not have per-metric goals, the report does not label their movement as
+favorable or unfavorable.
 
 Numeric observations are persisted in `summary.json.metrics`. Small,
 explicitly marked `benchmark-metrics.json` sidecars can supply derived metrics
@@ -267,6 +278,6 @@ Benchmark reports use only runs stamped with the current benchmark ID and
 definition digest. Runs from an older definition, unstamped legacy runs, and
 duplicate or out-of-range trial numbers are excluded or reported incomplete;
 rerun the benchmark after changing its selectors, objective, gates, trials, or
-reducers. A quality-gate warning is shown separately from numeric gain, so a
-positive objective improvement remains visible even when result quality is
-invalid.
+reducers. A quality-gate warning is shown separately from the numeric change,
+so the raw movement remains visible for diagnosis even when result quality is
+invalid; invalid movement is not labeled as a favorable improvement.

@@ -104,7 +104,7 @@ test('publishes a finalized batch to filesystem and reclassifies catalog without
   await publishBatchStatus({ config, batchId, validity: 'invalid', validityNote: 'review', store });
   expect(await store.get(`archive/v1/batches/${batchId}/manifest.json`)).toEqual(before);
   const benchmarkResult = JSON.parse(new TextDecoder().decode(await store.get(`archive/v1/batches/${batchId}/benchmarks/cost/results.json`)));
-  expect(benchmarkResult.gain.cases.map((result: { caseId: string }) => result.caseId)).toEqual(['case-a', 'case-b']);
+  expect(benchmarkResult.comparison.cases.map((result: { caseId: string }) => result.caseId)).toEqual(['case-a', 'case-b']);
   expect(benchmarkResult.baseline.state).toBe('incomplete');
   const index = JSON.parse(new TextDecoder().decode(await store.get('archive/v1/index.json')));
   expect(index.batches[0]).toMatchObject({ batchId, validity: 'invalid', validityNote: 'review' });
