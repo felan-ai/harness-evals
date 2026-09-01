@@ -302,6 +302,10 @@ export interface PublicResultsIndex {
   currencies are compatible; mixed currencies do not produce one total.
 - A case description, raw `error` string, `runDir`, argv, source path, local
   report path, or arbitrary metadata is not part of the V1 public projection.
+- Benchmark artifacts may include only bounded outcomes: status, pass flag,
+  failure categories, failed required assertion IDs, verifier reward, duration,
+  and stable run ID. Raw errors, assertion reasons, logs, prompts, commands,
+  workspaces, and verifier output remain excluded.
 - Projects may add an explicitly authored public case label in a later schema;
   the publisher must not treat the existing case description as sanitized
   public copy.

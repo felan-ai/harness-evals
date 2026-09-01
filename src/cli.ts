@@ -17,7 +17,7 @@ import { renderAggregateHtml } from './visualization/aggregate/render.js';
 import { renderAggregateCsv, renderAggregateJson } from './visualization/aggregate/csv.js';
 import { publishBatch, publishBatchStatus } from './results/public/publish.js';
 import type { PublicBatchValidity } from './results/public/types.js';
-import { resolveBenchmarkSelection } from './benchmarks/select.js';
+import { filterBenchmarkRuns, resolveBenchmarkSelection } from './benchmarks/select.js';
 import { analyzeBenchmark } from './benchmarks/analyze.js';
 import { renderBenchmarkCsv, renderBenchmarkHtml, renderBenchmarkIndexHtml, renderBenchmarkJson } from './benchmarks/render.js';
 
@@ -74,7 +74,8 @@ async function main(): Promise<void> {
       await publishBatchStatus({ config: config.results.publish, batchId: parsed.batch, validity: parsed.validity, validityNote: parsed.validityNote, supersededBy: parsed.supersededBy, dryRun: parsed.dryRun });
       console.log(parsed.dryRun ? `Validated publication status for ${parsed.batch} (dry run)` : `Updated publication status for ${parsed.batch}`);
     } else {
-      const result = await publishBatch({ projectRoot: config.projectRoot, artifactRoot: config.artifactRoot, config: config.results.publish, batchId: parsed.batch, dryRun: parsed.dryRun, validity: parsed.validity, validityNote: parsed.validityNote, supersededBy: parsed.supersededBy, allowUnfinalized: parsed.allowUnfinalized, benchmarks: config.benchmarks });
+      const benchmarkCases = Object.fromEntries(Object.entries(config.benchmarks).map(([id, definition]) => [id, config.testCases.filter((testCase) => definition.select.cases?.includes(testCase.id) || (testCase.suite && definition.select.suites?.includes(testCase.suite))).map((testCase) => testCase.id)]));
+      const result = await publishBatch({ projectRoot: config.projectRoot, artifactRoot: config.artifactRoot, config: config.results.publish, batchId: parsed.batch, dryRun: parsed.dryRun, validity: parsed.validity, validityNote: parsed.validityNote, supersededBy: parsed.supersededBy, allowUnfinalized: parsed.allowUnfinalized, benchmarks: config.benchmarks, benchmarkCases });
       console.log(result.dryRun ? `Validated batch ${parsed.batch} (dry run)` : `Published batch ${parsed.batch}${result.reportUrl ? `: ${result.reportUrl}` : ''}`);
     }
     return;
@@ -419,10 +420,10 @@ async function writeBenchmarkReport(
   if (!parsed.benchmarkId) throw new Error('Benchmark ID is required');
   const selection = resolveBenchmarkSelection(config, parsed.benchmarkId);
   const scan = await scanAggregateRuns(config);
-  const relevantRuns = filterTaskRuns(scan.taskRuns, {
+  const relevantRuns = filterBenchmarkRuns(filterTaskRuns(scan.taskRuns, {
     agents: selection.agentNames,
     cases: selection.testCases.map((testCase) => testCase.id),
-  });
+  }), selection.id, selection.definition);
   const batchIds = benchmarkBatchIds(parsed.batch, scan, relevantRuns);
   const runs = batchIds ? relevantRuns.filter((run) => batchIds.includes(run.batchId)) : relevantRuns;
   const report = analyzeBenchmark({ id: selection.id, definition: selection.definition, cases: selection.testCases.map((testCase) => testCase.id), runs });
@@ -446,7 +447,7 @@ async function writeBenchmarkIndex(
   await mkdir(reportRoot, { recursive: true });
   for (const id of Object.keys(config.benchmarks)) {
     const selection = resolveBenchmarkSelection(config, id);
-    const relevantRuns = filterTaskRuns(scan.taskRuns, { agents: selection.agentNames, cases: selection.testCases.map((testCase) => testCase.id) });
+    const relevantRuns = filterBenchmarkRuns(filterTaskRuns(scan.taskRuns, { agents: selection.agentNames, cases: selection.testCases.map((testCase) => testCase.id) }), id, selection.definition);
     const batchIds = benchmarkBatchIds(parsed.batch, scan, relevantRuns);
     const runs = batchIds ? relevantRuns.filter((run) => batchIds.includes(run.batchId)) : relevantRuns;
     const report = analyzeBenchmark({ id, definition: selection.definition, cases: selection.testCases.map((testCase) => testCase.id), runs });
@@ -632,7 +633,7 @@ Run flags:
   --attempts n                Override attempt count for selected cases
   --timeout-ms n              Override per-run timeout
   --image ref                 Use a ready Docker image and skip managed builds
-  --refresh-managed-image     Rebuild managed Docker image with --pull and --no-cache
+  --refresh-managed-image     Rebuild managed Docker image with --no-cache (and --pull unless docker.pullOnRefresh is false)
   --cleanup                   Delete adapter cleanup paths after each run (or set HARNESS_EVALS_CLEANUP=1)
   --no-cleanup                Keep adapter cleanup paths after each run (default)
 `);

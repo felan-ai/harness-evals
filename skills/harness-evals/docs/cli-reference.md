@@ -90,6 +90,9 @@ Generate and open the aggregate workspace report, or locate single-run reports.
 `view --benchmark <id>` writes one quality-gated benchmark report.
 `view --benchmark all` writes a landing page and HTML/JSON/CSV artifacts for
 every declared benchmark, using the newest relevant batch by default.
+Only runs stamped with the current benchmark definition digest are eligible;
+after changing a benchmark definition, run it again before viewing or
+publishing the report.
 
 ```bash
 harness-evals view [--config path] [--batch id|latest|all] [--agents a,b] [--suite name] [--status s1,s2] [--no-open] [--port n]

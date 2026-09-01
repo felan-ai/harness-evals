@@ -27,6 +27,7 @@ docker:
   baseImage: public.ecr.aws/acme/task:latest   # optional managed-build base; overrides the internal default base
   baseSetup:                                    # optional commands run after the base, before adapter recipes
     - "command -v node >/dev/null || apt-get update && apt-get install -y nodejs"
+  pullOnRefresh: false                          # preserve a local-only base while rebuilding recipes without cache
 ```
 
 A test case may also carry a per-case `image`; the matrix merges it into that case's `docker.baseImage` so each case can build on its own base while sharing one project config.
@@ -37,6 +38,7 @@ Rules:
 - If `docker.image` is absent, the harness uses managed-image mode.
 - `docker.baseImage`, when set, replaces the internal default base for the managed build; the agent install recipe is layered on top of it. When absent, the internal base image is used.
 - `docker.baseSetup` is an ordered list of `RUN` commands emitted right after the base image and before any adapter recipe, so it can guarantee runtimes (for example `node`/`python3`) exist on an arbitrary base. It participates in the cache key.
+- `docker.pullOnRefresh` defaults to `true`. Set it to `false` when `docker.baseImage` or a case-level `image` names a local-only base that Docker cannot pull from a registry; refresh still uses `--no-cache`.
 - The local tag prefix is an internal harness detail, not a user-facing YAML field.
 
 ### Image resolver contracts
@@ -48,6 +50,7 @@ interface DockerConfig {
   image?: string;
   baseImage?: string; // managed-build base override; ignored when `image` is set
   baseSetup?: string[]; // commands run after the base image, before adapter recipes
+  pullOnRefresh?: boolean; // defaults true
   repoPath: string;
   home: string;
   configRoot: string;
@@ -146,7 +149,7 @@ Rules:
 2. The cache key includes the resolved base image (`docker.baseImage` or the internal default), the `docker.baseSetup` commands, harness image schema version, adapter names, adapter versions, agent names, recipe commands, recipe probes, and recipe `cacheKey` values. A different per-case base image or `baseSetup` therefore caches as its own managed image.
 3. Adding a selected provider/adapter changes the install manifest when that provider/adapter has a recipe, producing a different cache key.
 4. If a cached managed image exists but required probes fail, the resolver rebuilds that image once for the same key.
-5. When refresh is requested, the resolver skips cached-image inspection and probe-before-build reuse, builds with Docker `--pull` and `--no-cache`, then reports `cacheHit: false`.
+5. When refresh is requested, the resolver skips cached-image inspection and probe-before-build reuse, builds with Docker `--no-cache` plus `--pull` unless `docker.pullOnRefresh` is `false`, then reports `cacheHit: false`.
 6. Install commands run during image build and must not require runtime secrets.
 7. `docker.baseSetup` commands are rendered as `RUN` lines immediately after the `FROM <baseImage>` (and `WORKDIR`) lines and before any adapter recipe, so adapter installs can rely on the runtimes they set up.
 8. Mock wrapper runtime requirements are represented through adapter recipes or probes when the internal base image is insufficient.
@@ -223,7 +226,7 @@ Image resolution metadata record:
 - Managed image cache keys are derived from a normalized install manifest.
 - Adding a selected provider/adapter with a new install recipe invalidates the cache by changing the manifest key.
 - Ready images are probed but never rebuilt.
-- `--refresh-managed-image` only affects managed images and rebuilds the selected managed tag with Docker `--pull` and `--no-cache`.
+- `--refresh-managed-image` only affects managed images and rebuilds the selected managed tag with Docker `--no-cache`. It also uses `--pull` unless `docker.pullOnRefresh` is `false` for a local-only base.
 
 ### Open decisions
 

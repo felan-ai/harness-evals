@@ -5,6 +5,7 @@ export interface WorkspaceSetupCommand {
   args: string[];
   cwd?: string;
   timeoutMs?: number;
+  network?: NetworkPolicyConfig;
 }
 
 export interface WorkspaceGitConfig {
@@ -38,6 +39,8 @@ export interface DockerConfig {
   // Commands run in the managed Dockerfile right after the base image, before
   // adapter recipes. Use to guarantee runtimes (node/python3) on arbitrary bases.
   baseSetup?: string[];
+  // Local-only base images cannot be resolved by Docker's refresh-time pull.
+  pullOnRefresh?: boolean;
   repoPath: string;
   home: string;
   configRoot: string;
@@ -399,6 +402,7 @@ export const DEFAULT_HARNESS_CONFIG: HarnessConfig = {
     timeoutMs: 300_000,
     envAllowlist: DEFAULT_ENV_ALLOWLIST,
     baseSetup: [],
+    pullOnRefresh: true,
   },
   agents: {},
   tests: ['evals/tests/**/*.yaml'],

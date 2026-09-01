@@ -32,8 +32,9 @@ Fixes:
 Git workspace sources are fetched on the host before the Docker workspace is
 prepared. Check that the host can reach the repository, the requested full SHA
 still exists upstream, and the URL does not contain credentials or unsupported
-protocols. Do not add a `git clone` setup command: setup runs in a network-disabled
-container and is intentionally too late for source acquisition.
+protocols. Prefer `workspace.git` over a setup-time clone: it verifies the full
+SHA, removes remotes, and records source provenance. Setup networking is disabled
+unless a command explicitly opts into another network policy.
 
 ## Docker image setup problems
 

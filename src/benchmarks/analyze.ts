@@ -1,5 +1,5 @@
 import type { BenchmarkDefinition } from '../config/schema.js';
-import type { ScannedTaskRun } from '../visualization/scan.js';
+import type { ScannedFailureCategory, ScannedTaskRun, ScannedRunStatus } from '../visualization/scan.js';
 
 export type BenchmarkArmState = 'eligible' | 'quality regression' | 'incomplete' | 'metric unavailable' | 'inconclusive';
 
@@ -7,12 +7,25 @@ export interface BenchmarkCaseResult {
   caseId: string;
   observations: Record<string, number[]>;
   attempts: Record<string, BenchmarkAttemptObservation[]>;
+  qualityAttempts: BenchmarkAttemptQuality[];
   values: Record<string, number>;
 }
 
 export interface BenchmarkAttemptObservation {
   attemptNumber: number;
   value: number;
+  quality: BenchmarkAttemptQuality;
+}
+
+export interface BenchmarkAttemptQuality {
+  attemptNumber: number;
+  status: ScannedRunStatus;
+  pass: boolean;
+  categories: ScannedFailureCategory[];
+  failedAssertions?: string[];
+  verifierReward?: number;
+  durationMs?: number;
+  runId: string;
 }
 
 export interface BenchmarkArmResult {
@@ -41,6 +54,8 @@ export interface BenchmarkAttemptGain {
   baselineValue?: number;
   candidateValue?: number;
   gainPercent?: number;
+  baselineQuality?: BenchmarkAttemptQuality;
+  candidateQuality?: BenchmarkAttemptQuality;
 }
 
 export interface BenchmarkGainSummary {
@@ -110,9 +125,13 @@ function summarizeGain(
     const candidateValue = candidateCase?.values[metric];
     const baselineAttempts = baselineCase?.attempts[metric] ?? [];
     const candidateAttempts = candidateCase?.attempts[metric] ?? [];
+    const baselineQualityAttempts = baselineCase?.qualityAttempts ?? [];
+    const candidateQualityAttempts = candidateCase?.qualityAttempts ?? [];
     const attemptNumbers = [...new Set([
       ...baselineAttempts.map((attempt) => attempt.attemptNumber),
       ...candidateAttempts.map((attempt) => attempt.attemptNumber),
+      ...baselineQualityAttempts.map((attempt) => attempt.attemptNumber),
+      ...candidateQualityAttempts.map((attempt) => attempt.attemptNumber),
     ])].sort((a, b) => a - b);
     return {
       caseId,
@@ -127,14 +146,18 @@ function summarizeGain(
           baselineValue: baselineAttempt,
           candidateValue: candidateAttempt,
           gainPercent: percentageGain(definition.objective.goal, baselineAttempt, candidateAttempt),
+          baselineQuality: baselineAttempts.find((attempt) => attempt.attemptNumber === attemptNumber)?.quality
+            ?? baselineQualityAttempts.find((attempt) => attempt.attemptNumber === attemptNumber),
+          candidateQuality: candidateAttempts.find((attempt) => attempt.attemptNumber === attemptNumber)?.quality
+            ?? candidateQualityAttempts.find((attempt) => attempt.attemptNumber === attemptNumber),
         };
       }),
     };
   });
   const values = cases.map((item) => item.gainPercent).filter((value): value is number => value !== undefined);
   const complete = values.length === caseIds.length && caseIds.length > 0 && caseIds.every((caseId) =>
-    baseline.cases.find((item) => item.caseId === caseId)?.observations[metric]?.length === definition.trials
-    && candidate.cases.find((item) => item.caseId === caseId)?.observations[metric]?.length === definition.trials);
+    hasExpectedAttempts(baseline.cases.find((item) => item.caseId === caseId), metric, definition.trials)
+    && hasExpectedAttempts(candidate.cases.find((item) => item.caseId === caseId), metric, definition.trials));
   return {
     averagePercent: complete ? reduce(values, 'mean') : undefined,
     minPercent: complete ? Math.min(...values) : undefined,
@@ -160,7 +183,7 @@ function buildArm(agentName: string, definition: BenchmarkDefinition, caseIds: s
       const metricAttempts = caseRuns.flatMap((run, index) => {
         const value = run.metrics?.[metric];
         return value !== undefined && Number.isFinite(value)
-          ? [{ attemptNumber: run.attemptNumber ?? index + 1, value }]
+          ? [{ attemptNumber: run.attemptNumber ?? index + 1, value, quality: qualityForRun(run) }]
           : [];
       });
       const points = metricAttempts.map((attempt) => attempt.value);
@@ -169,7 +192,7 @@ function buildArm(agentName: string, definition: BenchmarkDefinition, caseIds: s
       const reduced = reduce(points, definition.aggregation.trials);
       if (reduced !== undefined) values[metric] = reduced;
     }
-    return { caseId, observations, attempts, values };
+    return { caseId, observations, attempts, qualityAttempts: caseRuns.map(qualityForRun), values };
   });
   const values: Record<string, number> = {};
   for (const metric of metricNames) {
@@ -185,10 +208,28 @@ function buildArm(agentName: string, definition: BenchmarkDefinition, caseIds: s
   const actualRuns = armRuns.length;
   const requiredMetrics = new Set([definition.objective.metric, ...definition.qualityGates.map((gate) => gate.metric)]);
   const complete = actualRuns === expectedRuns && cases.every((item) =>
-    [...requiredMetrics].every((metric) => item.observations[metric]?.length === definition.trials
-      && new Set(item.attempts[metric]?.map((attempt) => attempt.attemptNumber)).size === definition.trials));
+    [...requiredMetrics].every((metric) => hasExpectedAttempts(item, metric, definition.trials)));
   const state: BenchmarkArmState = !complete ? 'incomplete' : gateResults.some((gate) => !gate.pass) ? 'quality regression' : values[definition.objective.metric] === undefined ? 'metric unavailable' : definition.trials < 2 ? 'inconclusive' : 'eligible';
   return { agentName, comparisonId, state, expectedRuns, actualRuns, missingRuns: Math.max(0, expectedRuns - actualRuns), cases, values, deltas: {}, gateResults };
+}
+
+function hasExpectedAttempts(item: BenchmarkCaseResult | undefined, metric: string, trials: number): boolean {
+  const attempts = item?.attempts[metric] ?? [];
+  return attempts.length === trials && attempts.every((attempt) => attempt.attemptNumber >= 1 && attempt.attemptNumber <= trials)
+    && new Set(attempts.map((attempt) => attempt.attemptNumber)).size === trials;
+}
+
+function qualityForRun(run: ScannedTaskRun): BenchmarkAttemptQuality {
+  return {
+    attemptNumber: run.attemptNumber ?? 1,
+    status: run.status,
+    pass: run.pass,
+    categories: run.failures?.categories ?? [],
+    ...(run.failures?.failedAssertions ? { failedAssertions: run.failures.failedAssertions } : {}),
+    ...(run.verifierReward !== undefined ? { verifierReward: run.verifierReward } : {}),
+    ...(run.durationMs !== undefined ? { durationMs: run.durationMs } : {}),
+    runId: run.runId,
+  };
 }
 
 function metricsFor(definition: BenchmarkDefinition): string[] {

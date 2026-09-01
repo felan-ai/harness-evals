@@ -28,6 +28,13 @@ actions as metric rows. The workspace aggregate HTML retains its cross-case
 agent/model matrix. Both summarize pass/fail/error, score, duration, cost,
 token usage, assertion failures, and links to details.
 
+Benchmark reports additionally retain a compact outcome for every selected case
+and attempt: status, pass flag, bounded failure categories, failed required
+assertion IDs, verifier reward, duration, and run ID. They expose these outcomes
+in test disclosures and attempt rows so an aggregate quality regression can be
+traced without embedding raw errors, prompts, logs, commands, or verifier
+output.
+
 Public archive reports use a separate case-centric layout: suites contain
 cases, and each case shows only the comparison identities that participated in
 that case. An agent profile may use an authored `comparisonId` to remain

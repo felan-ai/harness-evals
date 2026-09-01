@@ -9,6 +9,7 @@ import type { PublicBatchIndexEntry, PublicBatchValidity, PublicResultsIndex, Pu
 import { validatePublicObjectKey } from './stores/keys.js';
 import { analyzeBenchmark } from '../../benchmarks/analyze.js';
 import { renderBenchmarkCsv, renderBenchmarkHtml, renderBenchmarkJson } from '../../benchmarks/render.js';
+import { filterBenchmarkRuns } from '../../benchmarks/select.js';
 
 const enc = new TextEncoder();
 const text = new TextDecoder();
@@ -26,6 +27,7 @@ export interface PublishOptions {
   supersededBy?: string;
   allowUnfinalized?: boolean;
   benchmarks?: Record<string, BenchmarkDefinition>;
+  benchmarkCases?: Record<string, string[]>;
 }
 
 export interface PublishResult {
@@ -71,11 +73,23 @@ export async function publishBatch(options: PublishOptions): Promise<PublishResu
     csv: enc.encode(renderPublicBatchCsv(manifest)),
   };
   const benchmarkObjects = Object.entries(options.benchmarks ?? {}).flatMap(([id, definition]) => {
-    const selectedRuns = runs.filter((run) =>
+    const selectedRuns = filterBenchmarkRuns(runs.filter((run) =>
       (definition.select.cases?.includes(run.caseId) || (run.suite && definition.select.suites?.includes(run.suite)))
-      && [definition.arms.baseline, definition.arms.candidate].includes(run.agentName));
-    if (selectedRuns.length === 0) return [];
-    const report = analyzeBenchmark({ id, definition, runs: selectedRuns, cases: [...new Set(selectedRuns.map((run) => run.caseId))].sort() });
+      && [definition.arms.baseline, definition.arms.candidate].includes(run.agentName)), id, definition);
+    const configuredCases = options.benchmarkCases?.[id];
+    if (configuredCases?.some((caseId) => typeof caseId !== 'string' || caseId.length === 0)) {
+      throw new Error(`benchmarkCases.${id} must contain non-empty case IDs`);
+    }
+    if (definition.select.suites?.length && !configuredCases?.length) {
+      throw new Error(`benchmarkCases.${id} must contain the cases selected by suite`);
+    }
+    const selectedCases = [...new Set([
+      ...(configuredCases ?? []),
+      ...(definition.select.cases ?? []),
+      ...selectedRuns.map((run) => run.caseId),
+    ])].sort();
+    if (selectedCases.length === 0) return [];
+    const report = analyzeBenchmark({ id, definition, runs: selectedRuns, cases: selectedCases });
     const base = `${root}/batches/${options.batchId}/benchmarks/${id}`;
     const paths = { json: `${base}/results.json`, html: `${base}/results.html`, csv: `${base}/results.csv` };
     Object.values(paths).forEach((path) => validatePublicObjectKey(path));

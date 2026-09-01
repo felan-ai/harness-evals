@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { BenchmarkDefinition, CliOverrides, LoadedHarnessConfig, TestCase } from '../config/schema.js';
+import type { ScannedTaskRun } from '../visualization/scan.js';
 
 export interface ResolvedBenchmarkSelection {
   id: string;
@@ -38,4 +39,11 @@ export function resolveBenchmarkSelection(
 
 export function benchmarkDefinitionDigest(id: string, definition: BenchmarkDefinition): string {
   return createHash('sha256').update(JSON.stringify({ id, ...definition })).digest('hex');
+}
+
+export function filterBenchmarkRuns(runs: readonly ScannedTaskRun[], id: string, definition: BenchmarkDefinition): ScannedTaskRun[] {
+  const digest = benchmarkDefinitionDigest(id, definition);
+  return runs.filter((run) => run.benchmark?.id === id
+    && run.benchmark.revision === definition.revision
+    && run.benchmark.digest === digest);
 }

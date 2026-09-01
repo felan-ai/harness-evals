@@ -80,7 +80,7 @@ assert:
   }
 });
 
-test('workspace setup runs offline before the baseline snapshot and persists artifacts', async () => {
+test('workspace setup defaults offline, honors explicit networking, and runs before the baseline snapshot', async () => {
   const root = await tempRoot();
   const restoreDocker = await installFakeDocker(root);
 
@@ -96,28 +96,38 @@ workspace:
         - |
           const { writeFileSync } = require('node:fs');
           writeFileSync('prepared.txt', process.env.HARNESS_FAKE_DOCKER_NETWORK || 'default');
+    - command: node
+      args:
+        - -e
+        - |
+          const { writeFileSync } = require('node:fs');
+          writeFileSync('networked.txt', process.env.HARNESS_FAKE_DOCKER_NETWORK || 'default');
+      network:
+        mode: default
 prompt: Read the prepared file.
 config:
   script: |
     const { readFileSync } = require('node:fs');
-    console.log(readFileSync('prepared.txt', 'utf8'));
+    console.log(readFileSync('prepared.txt', 'utf8') + '/' + readFileSync('networked.txt', 'utf8'));
 assert:
   - type: contains
-    value: none
+    value: none/default
 `);
 
     const result = await runHarness({ cwd: root, adapters: [createLifecycleAdapter([])] });
     const run = result.results[0];
 
     expect(run.pass).toBe(true);
-    expect(run.output).toBe('none');
+    expect(run.output).toBe('none/default');
     expect(run.workspace.added).not.toContain('prepared.txt');
     expect(await readFile(join(run.runDir, 'workspace', 'prepared.txt'), 'utf8')).toBe('none');
+    expect(await readFile(join(run.runDir, 'workspace', 'networked.txt'), 'utf8')).toBe('default');
     expect(JSON.parse(await readFile(join(run.runDir, 'workspace-setup', '01', 'result.json'), 'utf8'))).toMatchObject({
       exitCode: 0,
       timedOut: false,
     });
     expect(JSON.parse(await readFile(join(run.runDir, 'workspace-setup', '01', 'command.redacted.json'), 'utf8')).network).toEqual({ mode: 'none' });
+    expect(JSON.parse(await readFile(join(run.runDir, 'workspace-setup', '02', 'command.redacted.json'), 'utf8')).network).toEqual({ mode: 'default' });
   } finally {
     restoreDocker();
   }

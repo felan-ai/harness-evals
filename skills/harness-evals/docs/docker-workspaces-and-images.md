@@ -19,24 +19,27 @@ The workspace mount is writable. Extra adapter config mounts, such as mounted au
 
 ## Prepare a copied workspace from the image
 
-Use `workspace.setup` when the source should remain a normal copied fixture but
-the resolved image supplies large dependencies or other immutable runtime data:
+Use `workspace.setup` when a copied fixture needs dependencies or preparation
+before the agent starts:
 
 ```yaml
 workspace:
   fixture: evals/fixtures/checkout
   setup:
-    - command: ln
-      args: [-s, /opt/checkout/node_modules, node_modules]
+    - command: pnpm
+      args: [install, --frozen-lockfile]
       cwd: /workspace
-      timeoutMs: 30000
+      timeoutMs: 300000
+      network:
+        mode: default
 ```
 
 Commands are passed directly as argv without an implicit shell. They run in
-order with networking disabled after the workspace and config directories are
-mounted, but before the baseline snapshot. Setup output and command metadata are
-stored under the run's `workspace-setup/` directory. Use an explicit `sh -lc`
-command only when shell behavior is genuinely required.
+order after the workspace and config directories are mounted, but before the
+baseline snapshot. Networking defaults to `none`; set `network.mode: default`
+explicitly for trusted commands that must reach a package registry. Setup output
+and command metadata are stored under the run's `workspace-setup/` directory.
+Use an explicit `sh -lc` command only when shell behavior is genuinely required.
 
 ## Workspaces are copied, not bind-mounted from your repo
 

@@ -257,3 +257,11 @@ explicitly marked `benchmark-metrics.json` sidecars can supply derived metrics
 for historical local runs without making the scanner load large `result.json`
 artifacts. `harness-evals view --benchmark all` generates the combined landing
 page and each benchmark's HTML/JSON/CSV files.
+
+Benchmark reports use only runs stamped with the current benchmark ID and
+definition digest. Runs from an older definition, unstamped legacy runs, and
+duplicate or out-of-range trial numbers are excluded or reported incomplete;
+rerun the benchmark after changing its selectors, objective, gates, trials, or
+reducers. A quality-gate warning is shown separately from numeric gain, so a
+positive objective improvement remains visible even when result quality is
+invalid.

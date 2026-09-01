@@ -136,6 +136,26 @@ test('refreshing an existing managed image rebuilds with pull and no cache', asy
   expect(builds[1]).toContain('--no-cache');
 });
 
+test('managed image refresh can preserve a local-only base image', async () => {
+  const root = await tempRoot();
+  restores.push(await installFakeDocker(root));
+  const registry = await createAdapterRegistry({ projectRoot: root, declarations: {}, builtIns: [createProbeAdapter('probe-ok')] });
+  const input = {
+    projectRoot: root,
+    docker: { ...dockerConfig(), baseImage: 'local-runtime:v1', pullOnRefresh: false },
+    selectedAgents: [{ agentName: 'agent', agent: { adapter: 'probe' } }],
+    adapterRegistry: registry,
+  };
+
+  await resolveDockerImage(input);
+  await resolveDockerImage({ ...input, refreshManagedImage: true });
+
+  const builds = (await readDockerLog(root)).filter((args) => args[0] === 'build');
+  expect(builds).toHaveLength(2);
+  expect(builds[1]).not.toContain('--pull');
+  expect(builds[1]).toContain('--no-cache');
+});
+
 test('refresh skips the cached managed image probe before rebuild', async () => {
   const root = await tempRoot();
   restores.push(await installFakeDocker(root));

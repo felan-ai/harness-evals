@@ -239,7 +239,7 @@ Rules:
 
 1. Create one output context for the test-case/agent pair.
 2. Seed the workspace once for the test-case run. For `workspace.git`, acquire and verify the full commit SHA on the host, copy the detached checkout with Git metadata but no remotes, and immediately remove the temporary acquisition checkout. Otherwise copy the local source/fixture or extract the configured image seed.
-3. Run trusted workspace setup commands without network access, then capture the baseline snapshot.
+3. Run trusted workspace setup commands with networking disabled by default and explicit per-command opt-in, then capture the baseline snapshot.
 4. For each step, stage mocks when declared, emit mock config/call records, logs, and normalized step output records.
 5. After the final step or stop condition, run the post-agent verifier when configured, emit workspace diff, score summary, cost summary, and result records. When `verifier.assetsDir` is set, the runner mounts that project-relative host directory read-only at `verifier.assetsTarget` (default `/tests`) into the verifier container only — never into agent steps — so hidden tests reach the verifier without leaking to the agent.
 6. Let configured output providers persist the records.

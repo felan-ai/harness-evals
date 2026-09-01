@@ -133,7 +133,7 @@ function readHarnessConfig(value: unknown): HarnessConfigOverride {
     artifactRoot: readOptionalString(value.artifactRoot, 'artifactRoot'),
     outputRoot: readOptionalString(value.outputRoot, 'outputRoot'),
     workspace: readWorkspaceConfig(value.workspace, 'workspace'),
-    docker: readOptionalRecord(value.docker, 'docker') as Partial<HarnessConfig['docker']> | undefined,
+    docker: readDockerConfig(value.docker),
     agents: readAgents(value.agents),
     tests: readTests(value.tests),
     adapters: readAdapters(value.adapters),
@@ -145,6 +145,17 @@ function readHarnessConfig(value: unknown): HarnessConfigOverride {
     results: readResultsConfig(value.results),
     benchmarks: readBenchmarks(value.benchmarks),
   };
+}
+
+function readDockerConfig(value: unknown): Partial<HarnessConfig['docker']> | undefined {
+  const docker = readOptionalRecord(value, 'docker');
+  if (!docker) return undefined;
+  const pullOnRefresh = readOptionalBoolean(docker.pullOnRefresh, 'docker.pullOnRefresh');
+  const { pullOnRefresh: _, ...rest } = docker;
+  return {
+    ...rest,
+    ...(pullOnRefresh !== undefined ? { pullOnRefresh } : {}),
+  } as Partial<HarnessConfig['docker']>;
 }
 
 function readBenchmarks(value: unknown): Record<string, BenchmarkDefinition> | undefined {
@@ -851,7 +862,7 @@ function readWorkspaceSetup(value: unknown, field: string): WorkspaceConfig['set
   return value.map((entry, index) => {
     const entryField = `${field}[${index}]`;
     if (!isRecord(entry)) throw new Error(`${entryField} must be an object`);
-    assertKnownKeys(entry, ['command', 'args', 'cwd', 'timeoutMs'], entryField);
+    assertKnownKeys(entry, ['command', 'args', 'cwd', 'timeoutMs', 'network'], entryField);
     const command = readOptionalString(entry.command, `${entryField}.command`);
     if (!command) throw new Error(`${entryField}.command is required`);
     const cwd = readOptionalString(entry.cwd, `${entryField}.cwd`);
@@ -861,6 +872,7 @@ function readWorkspaceSetup(value: unknown, field: string): WorkspaceConfig['set
       args: readOptionalStringArray(entry.args, `${entryField}.args`) ?? [],
       cwd,
       timeoutMs: readOptionalPositiveInteger(entry.timeoutMs, `${entryField}.timeoutMs`),
+      network: readNetworkPolicy(entry.network, `${entryField}.network`),
     };
   });
 }

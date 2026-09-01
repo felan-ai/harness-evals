@@ -901,6 +901,9 @@ function buildStepCompletedPayload(result: ScenarioStepResult): Record<string, u
       passed: result.assertions.filter((assertion) => assertion.pass || !assertion.required).length,
       failedRequired: result.assertions.filter((assertion) => !assertion.pass && assertion.required).length,
     },
+    failedAssertions: result.assertions
+      .filter((assertion) => !assertion.pass && assertion.required && assertion.id)
+      .map((assertion) => assertion.id),
     mockCalls: readMockSummary(result.metadata),
   };
 }

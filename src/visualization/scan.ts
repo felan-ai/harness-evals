@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
+import type { BenchmarkRunMetadata } from '../config/schema.js';
 
 /**
  * Workspace run scanner: enumerates task-run directories under the artifact
@@ -10,6 +11,12 @@ import { existsSync } from 'node:fs';
  */
 
 export type ScannedRunStatus = 'passed' | 'failed' | 'error' | 'skipped' | 'timeout' | 'incomplete';
+export type ScannedFailureCategory = 'assertion' | 'verifier' | 'timeout' | 'setup' | 'adapter' | 'incomplete' | 'unknown';
+
+export interface ScannedFailureSummary {
+  categories: ScannedFailureCategory[];
+  failedAssertions?: string[];
+}
 
 export interface ScannedTaskRun {
   runId: string;
@@ -20,6 +27,7 @@ export interface ScannedTaskRun {
   agentName: string;
   agentLabel?: string;
   comparisonId?: string;
+  benchmark?: BenchmarkRunMetadata;
   suite?: string;
   description?: string;
   attemptNumber?: number;
@@ -48,6 +56,7 @@ export interface ScannedTaskRun {
   model?: string;
   models?: string[];
   assertions?: { total: number; passed: number; failedRequired: number };
+  failures?: ScannedFailureSummary;
   metrics?: Record<string, number>;
   metricsSource?: string;
   hasIndexHtml: boolean;
@@ -243,6 +252,7 @@ async function scanRunDir(
     .filter(([, value]) => numberField(value) !== undefined)
     .map(([key, value]) => [key, value as number]);
   const metrics = metricEntries.length > 0 ? Object.fromEntries(metricEntries) : undefined;
+  const failures = await readFailureSummary(runDir, summary, assertions);
 
   return {
     runId,
@@ -253,6 +263,7 @@ async function scanRunDir(
     agentName: stringField(summary?.agentName) ?? stringField(started?.agentName) ?? 'unknown-agent',
     agentLabel: stringField(summary?.agentLabel) ?? stringField(startedAgent?.label),
     comparisonId: stringField(summary?.comparisonId) ?? stringField(startedAgent?.comparisonId),
+    benchmark: benchmarkMetadata(summary?.benchmark ?? started?.benchmark),
     suite: stringField(summary?.suite) ?? stringField(startedTestCase?.suite) ?? caseInfo?.[caseId]?.suite,
     description: stringField(summary?.description) ?? stringField(startedTestCase?.description) ?? caseInfo?.[caseId]?.description,
     attemptNumber: numberField(summary?.attemptNumber ?? started?.attemptNumber),
@@ -283,10 +294,82 @@ async function scanRunDir(
     model: models?.[0],
     models,
     assertions,
+    failures,
     metrics,
     metricsSource: stringField(metricSidecar?.source),
     hasIndexHtml: existsSync(join(runDir, 'index.html')),
   };
+}
+
+function benchmarkMetadata(value: unknown): BenchmarkRunMetadata | undefined {
+  if (!isRecord(value)) return undefined;
+  const id = stringField(value.id);
+  const revision = numberField(value.revision);
+  const digest = stringField(value.digest);
+  if (!id || revision === undefined || !Number.isInteger(revision) || revision < 1 || !digest) return undefined;
+  return { id, revision, digest };
+}
+
+async function readFailureSummary(
+  runDir: string,
+  summary: Record<string, unknown> | undefined,
+  assertions: ScannedTaskRun['assertions'],
+): Promise<ScannedFailureSummary | undefined> {
+  const categories = new Set<ScannedFailureCategory>();
+  const failedAssertions = new Set<string>();
+  const status = normalizeStatus(stringField(summary?.status));
+  const verifier = isRecord(summary?.verifier) ? summary.verifier : undefined;
+  const steps = Array.isArray(summary?.steps) ? summary.steps.filter(isRecord) : [];
+  const hasRequiredFailure = (assertions?.failedRequired ?? 0) > 0;
+  if (hasRequiredFailure) categories.add('assertion');
+  if (status === 'timeout') categories.add('timeout');
+  if (status === 'incomplete') categories.add('incomplete');
+  if (status === 'error') categories.add(steps.length === 0 ? 'setup' : 'adapter');
+  if (verifier && verifier.pass === false) categories.add('verifier');
+
+  const summaryFailures = Array.isArray(summary?.failedAssertions) ? summary.failedAssertions : [];
+  for (const value of summaryFailures) if (typeof value === 'string' && value.length > 0 && value.length <= 120) failedAssertions.add(value);
+  for (const step of steps) {
+    const stepAssertions = Array.isArray(step.assertions) ? step.assertions.filter(isRecord) : [];
+    for (const assertion of stepAssertions) {
+      if (assertion.pass === false && assertion.required !== false && typeof assertion.id === 'string' && assertion.id.length <= 120) {
+        failedAssertions.add(assertion.id);
+        categories.add('assertion');
+      }
+    }
+  }
+  if (steps.length === 0 || failedAssertions.size === 0) {
+    let stepEntries: string[] = [];
+    try {
+      stepEntries = (await readdir(join(runDir, 'steps'), { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    } catch {}
+    for (const stepId of stepEntries) {
+      const stepAssertions = await readAssertionFile(join(runDir, 'steps', stepId, 'assertions.json'));
+      for (const assertion of stepAssertions) {
+        if (assertion.pass === false && assertion.required !== false && typeof assertion.id === 'string' && assertion.id.length <= 120) {
+          failedAssertions.add(assertion.id);
+          categories.add('assertion');
+        }
+      }
+    }
+  }
+  if (failedAssertions.size > 0) categories.add('assertion');
+  if (status === 'failed' && categories.size === 0) categories.add('unknown');
+  if (categories.size === 0) return undefined;
+  return {
+    categories: [...categories].sort(),
+    ...(failedAssertions.size > 0 ? { failedAssertions: [...failedAssertions].sort() } : {}),
+  };
+}
+
+async function readAssertionFile(path: string): Promise<Record<string, unknown>[]> {
+  try {
+    const parsed = JSON.parse(await readFile(path, 'utf8')) as unknown;
+    return Array.isArray(parsed) ? parsed.filter(isRecord) : [];
+  } catch {
+    return [];
+  }
 }
 
 function normalizeStatus(status: string | undefined): ScannedRunStatus {

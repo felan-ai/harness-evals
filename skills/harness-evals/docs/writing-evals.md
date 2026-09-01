@@ -213,21 +213,25 @@ workspace:
 
 `workspace.fixture` is often the best choice for focused evals because each run starts from a stable snapshot.
 
-When a fixture needs dependencies or generated links supplied by its runtime
-image, declare trusted setup commands as argv instead of shell strings:
+When a fixture needs dependencies or generated files, declare trusted setup
+commands as argv instead of shell strings:
 
 ```yaml
 workspace:
   fixture: evals/fixtures/checkout
   setup:
-    - command: ln
-      args: [-s, /opt/checkout/node_modules, node_modules]
+    - command: pnpm
+      args: [install, --frozen-lockfile]
+      network:
+        mode: default
 ```
 
-Setup commands run sequentially in the resolved image with networking disabled,
-after the run-local workspace is mounted and before its baseline snapshot. Their
-changes are therefore fixture state rather than agent edits. A nonzero exit or
-timeout stops the run, and diagnostics are written under `workspace-setup/`.
+Setup commands run sequentially in the resolved image after the run-local
+workspace is mounted and before its baseline snapshot. Networking defaults to
+`none`; opt into `network.mode: default` only for trusted commands that need
+external access. Setup changes are fixture state rather than agent edits. A
+nonzero exit or timeout stops the run, and diagnostics are written under
+`workspace-setup/`.
 
 When the repo under test already lives inside the Docker image, seed the workspace from the image instead of copying a source:
 

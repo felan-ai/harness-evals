@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { analyzeBenchmark } from '../src/benchmarks/analyze.js';
 import { renderBenchmarkCsv, renderBenchmarkHtml, renderBenchmarkIndexHtml, renderBenchmarkJson } from '../src/benchmarks/render.js';
+import { benchmarkDefinitionDigest, filterBenchmarkRuns } from '../src/benchmarks/select.js';
 import type { BenchmarkDefinition } from '../src/config/schema.js';
 import type { ScannedTaskRun } from '../src/visualization/scan.js';
 
@@ -81,6 +82,36 @@ test('benchmark analyzer reports incomplete and quality regression arms', () => 
   expect(report.gain.averagePercent).toBeUndefined();
 });
 
+test('benchmark reports identify failed attempts without raw diagnostics', () => {
+  const failedBase = run('base', 'one', 1, 10, false);
+  const maliciousAssertionId = '<img src=x onerror=alert(1)>';
+  failedBase.failures = { categories: ['assertion'], failedAssertions: ['prewalk-entered', maliciousAssertionId] };
+  failedBase.error = 'do not publish this error';
+  const timedOutCandidate = run('candidate', 'one', 1, 5, false);
+  timedOutCandidate.status = 'timeout';
+  timedOutCandidate.failures = { categories: ['timeout', 'verifier'] };
+  const report = analyzeBenchmark({
+    id: 'diagnostics',
+    definition: { ...definition, select: { cases: ['one'] }, trials: 1 },
+    runs: [failedBase, timedOutCandidate],
+  });
+  const attempt = report.gain.cases[0]?.attempts[0];
+  expect(attempt?.baselineQuality).toMatchObject({ status: 'failed', categories: ['assertion'], failedAssertions: ['prewalk-entered', maliciousAssertionId] });
+  expect(attempt?.candidateQuality).toMatchObject({ status: 'timeout', categories: ['timeout', 'verifier'] });
+  const html = renderBenchmarkHtml(report);
+  expect(html).toContain('0/1 passed; 1 failed · assertion');
+  expect(html).toContain('Failed · assertion');
+  expect(html).toContain('Timed out');
+  expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+  expect(html).not.toContain(maliciousAssertionId);
+  expect(renderBenchmarkJson(report)).toContain('prewalk-entered');
+  expect(renderBenchmarkJson(report)).not.toContain('do not publish this error');
+  const csv = renderBenchmarkCsv(report);
+  expect(csv).toContain('rowType,benchmark,caseId,attemptNumber');
+  expect(csv).toContain('attempt,diagnostics,one,1');
+  expect(csv).toContain('prewalk-entered');
+});
+
 test('benchmark gains respect maximize objectives', () => {
   const maximize = { ...definition, objective: { metric: 'cost.total', goal: 'maximize' as const } };
   const runs = [
@@ -113,6 +144,52 @@ test('quality gates use every trial instead of the objective median', () => {
   const report = analyzeBenchmark({ id: 'cost', definition, runs });
   expect(report.candidate.state).toBe('quality regression');
   expect(report.candidate.gateResults[0]?.value).toBeCloseTo(5 / 6);
+});
+
+test('gain direction remains visible when a quality gate fails', () => {
+  const singleCase = { ...definition, select: { cases: ['one'] } };
+  const runs = [
+    ...[1, 2, 3].map((attempt) => run('base', 'one', attempt, 10)),
+    run('candidate', 'one', 1, 5), run('candidate', 'one', 2, 5), run('candidate', 'one', 3, 5, false),
+  ];
+  const report = analyzeBenchmark({ id: 'gain-with-regression', definition: singleCase, runs });
+  expect(report.candidate.state).toBe('quality regression');
+
+  const html = `${renderBenchmarkIndexHtml([report])}${renderBenchmarkHtml(report)}`;
+  expect(html).toContain('class="gain-value positive">+50.0%');
+  expect(html).toContain('class="gain-chart positive"');
+  expect(html).toContain('class="status-text bad">quality regression</span>');
+  expect(html).toContain('class="quality bad">Failed');
+});
+
+test('zero gain uses a neutral style', () => {
+  const singleCase = { ...definition, select: { cases: ['one'] } };
+  const runs = [
+    ...[1, 2, 3].map((attempt) => run('base', 'one', attempt, 10)),
+    ...[1, 2, 3].map((attempt) => run('candidate', 'one', attempt, 10)),
+  ];
+  const report = analyzeBenchmark({ id: 'no-change', definition: singleCase, runs });
+  const html = `${renderBenchmarkIndexHtml([report])}${renderBenchmarkHtml(report)}`;
+  expect(html).toContain('class="gain-value neutral">0.0%');
+  expect(html).toContain('class="gain-chart neutral"');
+});
+
+test('benchmark reports require matching stamped provenance and exact attempts', () => {
+  const benchmarkDefinition = { ...definition, select: { cases: ['one'] } };
+  const digest = benchmarkDefinitionDigest('provenance', benchmarkDefinition);
+  const matching = run('base', 'one', 1, 10);
+  matching.benchmark = { id: 'provenance', revision: benchmarkDefinition.revision, digest };
+  const stale = { ...matching, runId: 'stale', benchmark: { id: 'provenance', revision: 1, digest: 'old' } };
+  const wrongRevision = { ...matching, runId: 'wrong-revision', benchmark: { id: 'provenance', revision: 2, digest } };
+  expect(filterBenchmarkRuns([matching, stale, wrongRevision], 'provenance', benchmarkDefinition)).toEqual([matching]);
+
+  const duplicateRuns = [
+    run('base', 'one', 1, 10), run('base', 'one', 1, 11), run('base', 'one', 2, 10), run('base', 'one', 3, 10),
+    ...[1, 2, 3].map((attempt) => run('candidate', 'one', attempt, 5)),
+  ];
+  const report = analyzeBenchmark({ id: 'provenance', definition: benchmarkDefinition, runs: duplicateRuns });
+  expect(report.baseline.state).toBe('incomplete');
+  expect(report.gain.averagePercent).toBeUndefined();
 });
 
 test('missing quality-gate observations make an arm incomplete', () => {
@@ -175,7 +252,7 @@ benchmarks:
     for (const [agentName, cost] of [['base', 4], ['candidate', 2]] as const) {
       const runDir = join(runs, `${agentName}-one-2026-01-01T00-00-00-000Z-0`);
       await mkdir(runDir, { recursive: true });
-      await writeFile(join(runDir, 'summary.json'), JSON.stringify({ caseId: 'one', agentName, comparisonId: agentName, status: 'passed', pass: true, metrics: { 'quality.passRate': 1, 'cost.total': cost } }));
+      await writeFile(join(runDir, 'summary.json'), JSON.stringify({ caseId: 'one', agentName, comparisonId: agentName, benchmark: { id: 'cost', revision: 1, digest: benchmarkDefinitionDigest('cost', { revision: 1, label: 'Cost', select: { cases: ['one'] }, arms: { baseline: 'base', candidate: 'candidate' }, trials: 1, qualityGates: [{ metric: 'quality.passRate', min: 1 }], objective: { metric: 'cost.total', goal: 'minimize' }, aggregation: { trials: 'median', cases: 'macroMean' }, secondaryMetrics: [] }) }, status: 'passed', pass: true, metrics: { 'quality.passRate': 1, 'cost.total': cost } }));
     }
     const output = join(root, 'benchmark.json');
     const result = Bun.spawnSync(['bun', join(import.meta.dir, '..', 'src', 'cli.ts'), 'export', '--benchmark', 'cost', '--format', 'json', '--output', output, '--config', join(root, 'harness-evals.yaml')], { cwd: root });

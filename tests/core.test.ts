@@ -218,6 +218,8 @@ workspace:
       args: [-s, /opt/deps/node_modules, node_modules]
       cwd: /workspace
       timeoutMs: 1234
+      network:
+        mode: default
 prompt: hi
 assert: []
 `);
@@ -225,12 +227,13 @@ assert: []
   const config = await loadHarnessConfig({ cwd: root });
   const matrix = buildMatrix(config);
 
-  expect(config.workspace.setup).toEqual([{ command: 'node', args: ['-e', "console.log('project setup')"], cwd: undefined, timeoutMs: undefined }]);
+  expect(config.workspace.setup).toEqual([{ command: 'node', args: ['-e', "console.log('project setup')"], cwd: undefined, timeoutMs: undefined, network: undefined }]);
   expect(matrix[0].workspace.setup).toEqual([{
     command: 'ln',
     args: ['-s', '/opt/deps/node_modules', 'node_modules'],
     cwd: '/workspace',
     timeoutMs: 1234,
+    network: { mode: 'default' },
   }]);
 });
 
@@ -257,6 +260,18 @@ assert: []
 `);
 
   await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow('workspace.setup[0].cwd must be an absolute container path');
+});
+
+test('docker pullOnRefresh requires a boolean', async () => {
+  const root = await tempRoot();
+  await writeFile(join(root, 'harness-evals.yaml'), `
+version: 1
+docker:
+  pullOnRefresh: "false"
+tests: []
+`);
+
+  await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow('docker.pullOnRefresh must be a boolean');
 });
 
 test('documented config and test case shapes load', async () => {

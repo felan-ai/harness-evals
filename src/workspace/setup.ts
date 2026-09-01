@@ -38,7 +38,7 @@ export async function setupWorkspace(input: SetupWorkspaceInput): Promise<void> 
       argv: [command.command, ...command.args],
       workdir: command.cwd ?? input.workspace.containerPath,
       envNames: [],
-      network: { mode: 'none' },
+      network: command.network ?? { mode: 'none' },
       configMounts: [],
       caseId: `${input.caseId}-workspace-setup-${commandNumber}`,
       agentName: input.agentName,

@@ -169,7 +169,16 @@ async function resolveManagedImage(input: {
     }
   }
 
-  await buildManagedImage(input.projectRoot, input.image, input.manifest, input.cacheKey, input.docker.timeoutMs, cacheHit, refreshManagedImage);
+  await buildManagedImage(
+    input.projectRoot,
+    input.image,
+    input.manifest,
+    input.cacheKey,
+    input.docker.timeoutMs,
+    cacheHit,
+    refreshManagedImage,
+    input.docker.pullOnRefresh !== false,
+  );
   const probes = await runProbes(input.image, collectProbes(input.manifest.recipes), input.docker.timeoutMs);
   const result: ImageResolutionResult = {
     mode: 'managed',
@@ -197,13 +206,14 @@ async function buildManagedImage(
   timeoutMs: number,
   rebuildingCacheHit: boolean,
   refreshManagedImage: boolean,
+  pullOnRefresh: boolean,
 ): Promise<void> {
   const contextDir = join(projectRoot, IMAGE_CACHE_DIR, cacheKey);
   await mkdir(contextDir, { recursive: true });
   await writeFile(join(contextDir, 'Dockerfile'), renderDockerfile(manifest, cacheKey));
 
   const args = refreshManagedImage
-    ? ['build', '--pull', '--no-cache', '-t', image, contextDir]
+    ? ['build', ...(pullOnRefresh ? ['--pull'] : []), '--no-cache', '-t', image, contextDir]
     : ['build', '-t', image, contextDir];
   const result = await runDockerCommand(args, timeoutMs);
   if (result.exitCode !== 0 || result.errorMessage) {

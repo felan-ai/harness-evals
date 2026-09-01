@@ -187,7 +187,7 @@ test('scanWorkspaceRuns reads modern, legacy, corrupt, and incomplete run dirs',
   });
   // Legacy dir: no batchId anywhere; suite only via run-started testCase.
   await writeRunDir(root, 'case-b-pi-2026-06-09T10-00-00-000Z-1', {
-    'summary.json': { ...SUMMARY_BASE, caseId: 'case-b', agentName: 'pi', status: 'failed', pass: false },
+    'summary.json': { ...SUMMARY_BASE, caseId: 'case-b', agentName: 'pi', status: 'failed', pass: false, failedAssertions: ['failed-check'] },
     'run-started.json': { caseId: 'case-b', agentName: 'pi', testCase: { suite: 'legacy-suite' } },
   });
   // Corrupt summary, valid run-started → incomplete row + warning.
@@ -218,6 +218,7 @@ test('scanWorkspaceRuns reads modern, legacy, corrupt, and incomplete run dirs',
   expect(legacy?.batchId).toBe('legacy-2026-06-09');
   expect(legacy?.batchSynthetic).toBe(true);
   expect(legacy?.suite).toBe('legacy-suite');
+  expect(legacy?.failures).toEqual({ categories: ['assertion'], failedAssertions: ['failed-check'] });
 
   const incomplete = scan.taskRuns.find((run) => run.caseId === 'case-c');
   expect(incomplete?.status).toBe('incomplete');

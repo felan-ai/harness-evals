@@ -107,7 +107,13 @@ function cloneWorkspaceConfig(workspace: WorkspaceConfig): WorkspaceConfig {
 }
 
 function cloneWorkspaceSetup(setup: WorkspaceSetupCommand[]): WorkspaceSetupCommand[] {
-  return setup.map((entry) => ({ ...entry, args: [...entry.args] }));
+  return setup.map((entry) => ({
+    ...entry,
+    args: [...entry.args],
+    network: entry.network
+      ? { ...entry.network, allow: entry.network.allow ? [...entry.network.allow] : undefined }
+      : undefined,
+  }));
 }
 
 export function mergeDockerConfig(base: DockerConfig, override?: Partial<DockerConfig>): DockerConfig {
