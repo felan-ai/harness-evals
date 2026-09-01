@@ -52,7 +52,8 @@ A minimal project usually has:
 - `evals/tests/**/*.yaml` for test cases
 - `evals/mocks/` for optional CLI and MCP mock fixtures
 - `.harness-evals/runs/` for per-run artifacts
-- `.harness-evals/output/latest/` for the latest aggregated report
+- `.harness-evals/output/latest/` for the last invocation's summary
+- `.harness-evals/output/report/index.html` for the generated aggregate report
 
 The first case should be goal-specific: a workflow, regression, comparison, or behavior the user actually wants to evaluate.
 
@@ -79,7 +80,7 @@ harness-evals run --case checkout-refactor
 harness-evals list
 ```
 
-### Open the latest report
+### Open the aggregate report
 
 ```bash
 harness-evals view --open

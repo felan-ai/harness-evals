@@ -65,22 +65,24 @@ What this does:
 - copies the configured workspace into a Docker workspace
 - runs the selected agent against the selected case
 - evaluates assertions from the test case
-- writes run artifacts and the latest summary report
+- writes run artifacts and, when enabled, the last invocation's summary report
 
 A passing run exits with code `0`. A failing run exits with code `1` and still writes artifacts for inspection.
 
 ## 5. View the report
 
-To print the latest HTML report path:
+By default, `view` scans all workspace runs, generates the aggregate report,
+prints its path, and opens it. The newest batch is preselected, and the report
+can filter across the scanned runs:
 
 ```bash
 harness-evals view
 ```
 
-To open it directly:
+To generate the aggregate report and print its path without opening it:
 
 ```bash
-harness-evals view --open
+harness-evals view --no-open
 ```
 
 To serve reports on a local port:
@@ -95,22 +97,40 @@ You can also target a specific run if you know its run id:
 harness-evals view --run <run-id>
 ```
 
+Use `--latest` to target the pre-rendered summary from the last invocation
+instead of generating an aggregate report:
+
+```bash
+harness-evals view --latest --open
+```
+
 Per-run HTML lives at:
 
 - `.harness-evals/runs/<run-id>/index.html`
 
-The latest aggregated HTML report lives at:
+The generated aggregate HTML report lives at:
+
+- `.harness-evals/output/report/index.html`
+
+The last invocation's summary lives at:
 
 - `.harness-evals/output/latest/results.html`
 
 ## 6. Export a report file
 
-Export the latest report in one of the enabled visualization formats:
+By default, `export` renders an aggregate of the newest batch in one of the
+enabled visualization formats:
 
 ```bash
 harness-evals export --format html --output ./artifacts/results.html
 harness-evals export --format json --output ./artifacts/results.json
 harness-evals export --format csv --output ./artifacts/results.csv
+```
+
+Pass `--latest` to copy the last invocation's pre-rendered summary instead:
+
+```bash
+harness-evals export --latest --format json --output ./artifacts/latest-results.json
 ```
 
 To export a specific run instead of the latest summary:
@@ -125,6 +145,7 @@ harness-evals export --run <run-id> --format json --output ./artifacts/run.json
 
 Useful generated paths:
 
+- `.harness-evals/output/report/index.html` (after plain `view`)
 - `.harness-evals/output/latest/results.html`
 - `.harness-evals/output/latest/results.json`
 - `.harness-evals/output/latest/results.csv`

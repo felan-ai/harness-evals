@@ -81,6 +81,7 @@ Built-in adapters include:
 - `claude-code`
 - `codex`
 - `cursor`
+- `felan`
 
 Projects can also register custom adapters.
 
@@ -180,10 +181,12 @@ Reports are built from run output records and can be written in:
 - `json`
 - `csv`
 
-There are two common views:
+There are four common report surfaces:
 
 - per-run artifacts under `artifactRoot/<run-id>/`
-- latest summary artifacts under `outputRoot/latest/`
+- the last invocation's pre-rendered summary under `outputRoot/latest/`
+- the aggregate workspace report generated at `outputRoot/report/index.html`
+- named benchmark reports under `outputRoot/benchmarks/`
 
 ### Scoring
 
@@ -226,7 +229,7 @@ You can narrow the matrix with:
 
 ### 3) Prepare the runtime
 
-For each case/agent pair, the harness:
+For each case/agent/attempt entry, the harness:
 
 - creates a run directory
 - copies the workspace

@@ -78,7 +78,9 @@ Fix:
 harness-evals run --refresh-managed-image
 ```
 
-This rebuilds the managed image with Docker `--pull` and `--no-cache`, reruns probes, and records `cacheHit: false` in `image-resolution.json`.
+This rebuilds the managed image with `--no-cache` and Docker `--pull` unless
+`docker.pullOnRefresh: false`, reruns probes, and records `cacheHit: false` in
+`image-resolution.json`.
 
 ## Unsupported adapters for MCP mocks
 
@@ -101,7 +103,8 @@ Fixes:
 
 What `view` expects:
 
-- latest report: `output/latest/results.html`
+- aggregate report: `<outputRoot>/report/index.html`
+- latest summary: `<outputRoot>/latest/results.html` (only with `view --latest`)
 - run report: `<artifactRoot>/<run-id>/index.html`
 
 Fixes:
@@ -124,7 +127,8 @@ Fixes:
 
 - enable visualization in config
 - add the format you want to `visualization.formats`
-- for latest exports, make sure a run has already produced `output/latest/results.<format>`
+- for latest exports, make sure a run has already produced `<outputRoot>/latest/results.<format>`
+- benchmark exports render directly and do not require that format to be enabled
 - for run-specific exports, make sure the run directory still contains `result.json`
 
 ## Mock failures

@@ -151,7 +151,9 @@ Only buckets with `sourceCount > 0` and `weight > 0` are included in the weighte
 ## How score buckets are calculated
 
 - `assertionPassRate`: passed non-judge assertions divided by total non-judge assertions
-- `judgeScore`: average of all `llmJudge` scores
+- `judgeScore`: average of finite numeric scores returned by `llmJudge` assertions.
+  Judge failures without a numeric score are excluded from this bucket but still
+  fail the assertion.
 - `verifierReward`: average of numeric rewards emitted by the verifier, clamped to `0..1`
 - `latency`, `cost`, `tokenUsage`: normalized to the `0..1` range using `best`, `worst`, and `target`
 

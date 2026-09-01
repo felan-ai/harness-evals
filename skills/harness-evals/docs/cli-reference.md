@@ -47,7 +47,7 @@ Flags:
 - `--model <name>`: override the model for selected agents.
 - `--timeout-ms <n>`: override the per-run timeout.
 - `--image <ref>`: use a ready Docker image for all selected runs and skip managed image builds.
-- `--refresh-managed-image`: rebuild the selected managed image before running, using Docker `--pull` and `--no-cache`.
+- `--refresh-managed-image`: rebuild the selected managed image before running, using `--no-cache` and Docker `--pull` unless `docker.pullOnRefresh: false`.
 - `--cleanup`: delete adapter cleanup paths after each run. You can also set `HARNESS_EVALS_CLEANUP=1`.
 - `--no-cleanup`: keep adapter cleanup paths after each run. This is the default.
 
@@ -87,7 +87,9 @@ Output includes:
 
 Generate and open the aggregate workspace report, or locate single-run reports.
 
-`view --benchmark <id>` writes one quality-gated benchmark report.
+`view --benchmark <id>` writes one benchmark report that evaluates and displays
+quality-gate state. A failed gate makes an arm ineligible but does not prevent
+report generation.
 `view --benchmark all` writes a landing page and HTML/JSON/CSV artifacts for
 every declared benchmark, using the newest relevant batch by default.
 Only runs stamped with the current benchmark definition digest are eligible;
@@ -134,7 +136,7 @@ Required flags:
 
 Optional flags:
 
-- `--batch <id|latest|all>`: which batches to include (default `latest`); merging several keeps the newest graded attempt per (case, agent).
+- `--batch <id|latest|all>`: which batches to include (default `latest`); merging several keeps the newest graded run per (case, agent, attempt number), while distinct attempts remain separate.
 - `--agents`, `--suite`, `--case`, `--status`: server-side row filters.
 - `--latest`: copy `<outputRoot>/latest/results.<format>` verbatim (pre-aggregate behavior).
 - `--run <id>`: export a specific historical run from its `result.json`.
@@ -161,7 +163,7 @@ Managed image behavior:
 
 - The image is built from the install recipes required by the selected agents.
 - Cached images are probed before reuse; if a cached image fails probes, it is rebuilt.
-- Pass `--refresh-managed-image` to bypass cached-image reuse and rebuild the managed image with Docker `--pull` and `--no-cache`.
+- Pass `--refresh-managed-image` to bypass cached-image reuse and rebuild the managed image with `--no-cache`; Docker `--pull` is used unless `docker.pullOnRefresh: false`.
 - There is no separate Docker build workflow to run first.
 
 If you call the `docker` command directly, the CLI fails with guidance to use `run` and either let managed builds happen automatically or supply `docker.image` / `--image`.
@@ -188,10 +190,14 @@ results:
 ```
 
 `publish` reads only compact `summary.json` and `run-started.json` files. It
-publishes a summary manifest, HTML report, CSV, and root catalog. It never
+publishes a summary manifest, HTML report, CSV, and root catalog. When
+benchmarks are configured, it also publishes each benchmark's JSON, HTML, and
+CSV reports under `batches/<batch-id>/benchmarks/<benchmark-id>/` and records
+their paths in the catalog. It never
 uploads transcripts, logs, workspaces, credentials, raw results, or local
 paths. `--dry-run` validates and renders without writing files. A completed
-local batch record is required; use `--allow-unfinalized` only with
+local batch record is required and must exactly match the scanned run IDs;
+duplicate or missing IDs are rejected. Use `--allow-unfinalized` only with
 `--validity invalid` and a non-empty `--validity-note`.
 
 `publish-status` changes only the catalog validity metadata and requires that
@@ -204,7 +210,7 @@ The public archive root is an aggregate dashboard rather than a batch list.
 It fetches the selected compact manifests and supports:
 
 - **Latest results** — union batches and keep the newest result for each
-  case/agent pair.
+  case/comparison identity and attempt number.
 - **All runs / attempts** — retain every published run so repeated executions
   can be compared as attempts.
 

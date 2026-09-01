@@ -456,6 +456,13 @@ test('packaged skill exposes public docs index and safe onboarding guidance', as
   expect(bundledDocsText).not.toContain('starter-smoke');
   expect(existsSync(join(docsDir, 'HDL.md'))).toBe(false);
   expect(existsSync(join(docsDir, 'lld'))).toBe(false);
+
+  const referencedDocs = [...skill.matchAll(/docs\/([a-z0-9-]+\.md)/g)].map((match) => match[1]);
+  expect(referencedDocs.length).toBeGreaterThan(0);
+  for (const doc of new Set(referencedDocs)) expect(existsSync(join(docsDir, doc))).toBe(true);
+  for (const adapter of builtInAdapters) expect(bundledDocsText).toContain(`\`${adapter.name}\``);
+  expect(bundledDocsText).not.toContain('bun run build-images');
+  expect(bundledDocsText).not.toContain('bun run run --');
 });
 
 test('adapter registry lists built-ins and allows project overrides', async () => {

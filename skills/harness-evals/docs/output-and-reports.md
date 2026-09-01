@@ -129,8 +129,8 @@ How it works:
   directory it creates (`summary.json.batchId`, plus full metadata under
   `run-started.json.batch`). The report's "Runs" selector lists batches
   newest-first; the newest is pre-selected.
-- Selecting several batches merges them, keeping the **newest graded attempt**
-  per (case, agent): a passed/failed/skipped/timeout verdict always beats an
+- Selecting several batches merges them, keeping the **newest graded run**
+  per (case, agent, attempt number): a passed/failed/skipped/timeout verdict always beats an
   error/incomplete run, regardless of recency.
 - Runs from versions before batch stamping are grouped into synthetic
   `legacy-<date>` batches derived from the run directory timestamp.
@@ -169,7 +169,7 @@ Behavior:
   and open it; `--batch`, `--agents`, `--suite`, `--status` pre-set the
   report's filters (all data stays embedded)
 - with `--run`, it targets `<artifactRoot>/<run-id>/index.html`
-- with `--latest`, it targets `output/latest/results.html`
+- with `--latest`, it targets `<outputRoot>/latest/results.html`
 - with `--port`, it serves `/report/...`, `/latest/...` and `/runs/...` over a
   local HTTP server (run links in the aggregate report resolve automatically)
 
@@ -190,17 +190,22 @@ Behavior:
 - default exports the **aggregate**: scans the workspace, applies `--batch`
   (default `latest`; `all` or a comma list also allowed), `--agents`,
   `--suite`, `--case`, `--status` server-side; merging several batches
-  dedupes to the newest graded attempt per (case, agent). `html` stays
+  dedupes to the newest graded run per (case, agent, attempt number). Distinct
+  attempts remain separate. `html` stays
   interactive; `csv` is one row per task run (batch, suite, models, status,
   duration, cost, token split); `json` is the embedded data model.
-- `--latest` copies `output/latest/results.<format>` verbatim
+- `--latest` copies `<outputRoot>/latest/results.<format>` verbatim
 - `--run` reads `<artifactRoot>/<run-id>/result.json` and renders on demand
 
-`export` requires:
+Generic aggregate, latest, and run exports require:
 
 - `--format html|json|csv`
 - `--output <path>`
 - visualization enabled for the requested format
+
+Benchmark exports (`export --benchmark <id>`) render directly and do not apply
+the visualization enabled/format check. Benchmark reports still evaluate and
+display quality-gate state; a failed gate does not prevent report generation.
 
 If a format is not enabled, the CLI fails with `Visualization format is not enabled: ...`.
 

@@ -227,7 +227,8 @@ workspace:
 ```
 
 Setup commands run sequentially in the resolved image after the run-local
-workspace is mounted and before its baseline snapshot. Networking defaults to
+workspace is mounted and before its baseline snapshot. They run per run and
+are not part of the managed image build. Networking defaults to
 `none`; opt into `network.mode: default` only for trusted commands that need
 external access. Setup changes are fixture state rather than agent edits. A
 nonzero exit or timeout stops the run, and diagnostics are written under

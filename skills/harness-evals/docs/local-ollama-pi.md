@@ -190,25 +190,20 @@ If the project has multiple harness configs, keep the Docker and agent recipe bl
 
 ## 6. Run one case first
 
-Build only the image for the case you will run:
+The harness builds the managed image automatically for the selected agent. Run
+only the case you want to exercise:
 
 ```bash
-bun run build-images --only <case-id>
+harness-evals run --config harness-evals.pilot.yaml \
+  --agents pi-local-ollama \
+  --case <case-id> \
+  --concurrency 1
 ```
 
 On macOS, warm recreated `evals/` bind mounts after regenerating cases:
 
 ```bash
 docker run --rm -v "$PWD/evals/<case-id>:/x:ro" alpine ls /x
-```
-
-Run a single smoke case:
-
-```bash
-bun run run -- --config harness-evals.pilot.yaml \
-  --agents pi-local-ollama \
-  --case <case-id> \
-  --concurrency 1
 ```
 
 Then inspect:

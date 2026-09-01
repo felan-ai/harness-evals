@@ -15,7 +15,9 @@ The container mounts:
 - the run workspace at `workspace.containerPath` (default `/workspace`)
 - the run config directory at `docker.configRoot` (default `/agent-config`)
 
-The workspace mount is writable. Extra adapter config mounts, such as mounted auth directories, are read-only.
+The workspace mount is writable. Mount mutability is adapter-defined: verifier
+assets are read-only, while Felan's OAuth `auth.json` mount is writable so
+tokens can be refreshed and persisted.
 
 ## Prepare a copied workspace from the image
 
@@ -154,7 +156,10 @@ If `docker.image` is omitted, harness-evals builds a managed runtime image autom
 What goes into that image:
 
 - the install recipe returned by each selected adapter
-- adapter-defined package installs, setup commands, and probes
+- adapter-defined base packages, install commands, and probes
+
+`workspace.setup` runs per run in the mounted workspace after the image is
+resolved; its commands are not baked into the managed image.
 
 Managed images are:
 
@@ -163,13 +168,17 @@ Managed images are:
 - re-probed when reused
 - rebuilt if a cached image no longer passes probes
 
-Use `--refresh-managed-image` when the install manifest is unchanged but upstream packages or the base image may have changed:
+Use `--refresh-managed-image` when the install manifest is unchanged but upstream packages or the base image may have changed. It rebuilds with
+`--no-cache` and uses Docker `--pull` unless `docker.pullOnRefresh: false`:
 
 ```bash
 harness-evals run --refresh-managed-image
 ```
 
-Refresh mode skips the cached-image reuse path, builds with Docker `--pull` and `--no-cache`, runs probes after the build, and records `cacheHit: false` in `image-resolution.json`. The flag does not rebuild or mutate a user-supplied ready image.
+Refresh mode skips the cached-image reuse path, builds with `--no-cache` and
+Docker `--pull` unless `docker.pullOnRefresh: false`, runs probes after the
+build, and records `cacheHit: false` in `image-resolution.json`. The flag does
+not rebuild or mutate a user-supplied ready image.
 
 You do not need a separate Docker build step in your project config.
 

@@ -78,12 +78,29 @@ For local development on the harness itself:
 bun install
 bun run check
 bun run build
-npx skills add harness-evals --skill harness-evals
+
+repo_root="$(git rev-parse --show-toplevel)"
+skill_source="$repo_root/skills/harness-evals"
+skill_target="$HOME/.agents/skills/harness-evals"
+
+test -f "$skill_source/SKILL.md"
+mkdir -p "$HOME/.agents/skills"
+ln -s "$skill_source" "$skill_target"
 ```
+
+The Skills CLI copies a local skill into its canonical installation directory,
+so a Skills CLI install does not track later repository edits. Use the direct
+repository symlink above while editing the skill. Inspect `skill_target` first;
+if it already exists and is not the correct symlink, get the user's approval
+before replacing that user-level agent configuration. Verify the link with
+`readlink` and start a new agent session to reload the skill. A later Skills CLI
+install or update may replace the direct link.
 
 ## `harness-evals.yaml`
 
-The config file name is fixed: `harness-evals.yaml`.
+Without `--config`, the discovered file name is fixed:
+`harness-evals.yaml`. The `--config <path>` option can select a differently named
+YAML file explicitly.
 
 Minimal config shape:
 
@@ -362,7 +379,10 @@ results:
 
 Run `harness-evals publish --batch <batch-id>` after a run. The publisher
 writes immutable per-batch `manifest.json`, `results.html`, and `results.csv`
-objects before updating the root catalog. Use `--dry-run` to validate without
+objects before updating the root catalog. Configured benchmarks also get
+immutable JSON, HTML, and CSV objects under the batch's benchmark directory,
+with their paths recorded in the catalog. The completed local batch record must
+exactly match the scanned run IDs; duplicate or missing IDs are rejected. Use `--dry-run` to validate without
 writing. `publish-status` reclassifies an existing catalog entry without
 reading local artifacts; its `--dry-run` option validates without updating the
 catalog. The public projection contains summary dimensions,
@@ -374,6 +394,7 @@ Vercel Blob can be implemented behind the same interface once deployment
 requirements are chosen.
 
 The archive root aggregates all published batches. Its **Latest results** view
-unions suites and cases and selects the newest result for each case/agent pair;
+unions suites and cases and selects the newest result for each case/comparison
+identity (`comparisonId`, falling back to the agent name);
 **All runs / attempts** retains every observation for longitudinal comparison.
 Use the suite, case, agent, validity, and status filters to narrow the view.
