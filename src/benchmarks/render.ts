@@ -66,18 +66,21 @@ export function renderBenchmarkHtml(report: BenchmarkReportData): string {
   const objectiveLabel = `${metricLabel(objective)} · ${report.definition.objective.goal}`;
   const overallAssessment = assessment(report, report.comparison.averageImprovementPercent);
   const tests = report.comparison.cases.map((item) => {
-    const attempts = item.attempts.map((attempt) => `<div class="attempt-row"><span>Attempt ${attempt.attemptNumber}</span><span>${formatMetric(objective, attempt.baselineValue)}<small class="quality ${qualityClass(attempt.baselineQuality)}">${escape(formatQuality(attempt.baselineQuality))}</small></span><span>${formatMetric(objective, attempt.candidateValue)}<small class="quality ${qualityClass(attempt.candidateQuality)}">${escape(formatQuality(attempt.candidateQuality))}</small></span><span class="change-value ${changeClass(report, attempt.improvementPercent)}">${formatPercent(attempt.changePercent)}</span><span>${escape(formatAssessment(assessmentForQualities(report, attempt.improvementPercent, [attempt.baselineQuality, attempt.candidateQuality])))}</span></div>`).join('');
+    const attempts = item.attempts.map((attempt) => {
+      const attemptAssessment = assessmentForQualities(attempt.improvementPercent, [attempt.baselineQuality, attempt.candidateQuality]);
+      const changeLabel = `Raw change ${formatPercent(attempt.changePercent)}; ${formatAssessment(attemptAssessment)}`;
+      return `<div class="attempt-row"><span>Attempt ${attempt.attemptNumber}</span><span>${formatMetric(objective, attempt.baselineValue)}<small class="quality ${qualityClass(attempt.baselineQuality)}">${escape(formatQuality(attempt.baselineQuality))}</small></span><span>${formatMetric(objective, attempt.candidateValue)}<small class="quality ${qualityClass(attempt.candidateQuality)}">${escape(formatQuality(attempt.candidateQuality))}</small></span><span class="change-value ${assessmentClass(attemptAssessment)}" aria-label="${escape(changeLabel)}">${formatPercent(attempt.changePercent)}</span></div>`;
+    }).join('');
     const baselineQuality = item.attempts.map((attempt) => attempt.baselineQuality).filter((quality): quality is BenchmarkAttemptQuality => quality !== undefined);
     const candidateQuality = item.attempts.map((attempt) => attempt.candidateQuality).filter((quality): quality is BenchmarkAttemptQuality => quality !== undefined);
-    const itemAssessment = assessmentForQualities(report, item.improvementPercent, [...baselineQuality, ...candidateQuality]);
+    const itemAssessment = assessmentForQualities(item.improvementPercent, [...baselineQuality, ...candidateQuality]);
     const label = `${item.caseId}: baseline ${formatMetric(objective, item.baselineValue)}, ${formatQualitySummary(baselineQuality)}; candidate ${formatMetric(objective, item.candidateValue)}, ${formatQualitySummary(candidateQuality)}; raw change ${formatPercent(item.changePercent)}, ${formatAssessment(itemAssessment)}`;
-    return `<details class="test-block"><summary class="test-summary" aria-label="${escape(label)}"><span class="test-name">${escape(item.caseId)}</span><span>${formatMetric(objective, item.baselineValue)}<small class="quality ${qualityClassForList(baselineQuality)}">${escape(formatQualitySummary(baselineQuality))}</small></span><span>${formatMetric(objective, item.candidateValue)}<small class="quality ${qualityClassForList(candidateQuality)}">${escape(formatQualitySummary(candidateQuality))}</small></span><span class="change-value ${changeClass(report, item.improvementPercent)}">${formatPercent(item.changePercent)}</span><span>${escape(formatAssessment(itemAssessment))}</span></summary><div class="attempt-list">${attempts}</div></details>`;
+    return `<details class="test-block"><summary class="test-summary" aria-label="${escape(label)}"><span class="test-name">${escape(item.caseId)}</span><span>${formatMetric(objective, item.baselineValue)}<small class="quality ${qualityClassForList(baselineQuality)}">${escape(formatQualitySummary(baselineQuality))}</small></span><span>${formatMetric(objective, item.candidateValue)}<small class="quality ${qualityClassForList(candidateQuality)}">${escape(formatQualitySummary(candidateQuality))}</small></span><span class="change-value ${assessmentClass(itemAssessment)}">${formatPercent(item.changePercent)}</span></summary><div class="attempt-list">${attempts}</div></details>`;
   }).join('');
   const status = renderStatus(states);
   const reducer = capitalize(report.definition.aggregation.trials);
-  const quality = report.comparison.cases.flatMap((item) => item.attempts.map((attempt) => attempt.baselineQuality ?? attempt.candidateQuality).filter((value): value is BenchmarkAttemptQuality => value !== undefined));
   const direction = report.definition.objective.goal === 'minimize' ? 'lower' : 'higher';
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(report.definition.label)}</title><style>${styles()}</style></head><body><main><a class="back" href="../index.html">← Benchmarks</a><header class="detail-header"><h1>${escape(report.definition.label)}</h1><p class="pair">${escape(report.candidate.comparisonId)} vs ${escape(report.baseline.comparisonId)}</p><p class="objective">${escape(objectiveLabel)} · ${direction} is better</p><div class="result-line"><span class="result-stat"><strong class="change-value ${changeClass(report, report.comparison.averageImprovementPercent)}">${formatPercent(report.comparison.averageChangePercent)}</strong><span>average raw change · ${escape(formatAssessment(overallAssessment))}</span></span><span class="separator">·</span><span class="result-stat"><strong>${formatRange(report.comparison.minChangePercent, report.comparison.maxChangePercent)}</strong><span>range</span></span>${status}</div>${report.baseline.state === 'quality regression' || report.candidate.state === 'quality regression' ? '<p class="quality-warning">Quality regression — metric change shown for diagnosis; it is not a success signal.</p>' : ''}</header><section class="data-section"><h2>Arms</h2><table><caption>Benchmark arms</caption><thead><tr><th scope="col">Arm</th><th scope="col">Runs</th><th scope="col">${escape(objectiveLabel)}</th><th scope="col">Outcome</th><th scope="col">Absolute change</th><th scope="col">Assessment</th></tr></thead><tbody><tr><th scope="row">${escape(report.baseline.comparisonId)}</th><td>${report.baseline.actualRuns}/${report.baseline.expectedRuns}</td><td>${formatMetric(objective, report.baseline.values[objective])}</td><td>${escape(formatQualitySummary(report.comparison.cases.flatMap((item) => item.attempts.map((attempt) => attempt.baselineQuality).filter((quality): quality is BenchmarkAttemptQuality => quality !== undefined))))}</td><td>—</td><td>Baseline</td></tr><tr><th scope="row">${escape(report.candidate.comparisonId)}</th><td>${report.candidate.actualRuns}/${report.candidate.expectedRuns}</td><td>${formatMetric(objective, report.candidate.values[objective])}</td><td>${escape(formatQualitySummary(report.comparison.cases.flatMap((item) => item.attempts.map((attempt) => attempt.candidateQuality).filter((quality): quality is BenchmarkAttemptQuality => quality !== undefined))))}</td><td class="change-value ${changeClass(report, report.comparison.averageImprovementPercent)}">${formatMetric(objective, report.candidate.deltas[objective], true)}</td><td>${escape(formatAssessment(assessmentForQualities(report, report.comparison.averageImprovementPercent, quality)))}</td></tr></tbody></table></section><section class="data-section"><h2>Tests</h2><div class="test-list"><div class="test-columns"><span>Test</span><span>Baseline (${reducer})</span><span>Candidate (${reducer})</span><span>Raw change</span><span>Assessment</span></div>${tests || '<p class="empty-list">No tests.</p>'}</div></section></main></body></html>\n`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(report.definition.label)}</title><style>${styles()}</style></head><body><main><a class="back" href="../index.html">← Benchmarks</a><header class="detail-header"><h1>${escape(report.definition.label)}</h1><p class="pair">${escape(report.candidate.comparisonId)} vs ${escape(report.baseline.comparisonId)}</p><p class="objective">${escape(objectiveLabel)} · ${direction} is better</p><div class="result-line"><span class="result-stat"><strong class="change-value ${changeClass(report, report.comparison.averageImprovementPercent)}">${formatPercent(report.comparison.averageChangePercent)}</strong><span>average raw change</span></span><span class="separator">·</span><span class="result-stat"><strong>${formatRange(report.comparison.minChangePercent, report.comparison.maxChangePercent)}</strong><span>range</span></span>${status}</div>${report.baseline.state === 'quality regression' || report.candidate.state === 'quality regression' ? '<p class="quality-warning">Quality regression — metric change shown for diagnosis; it is not a success signal.</p>' : ''}</header><section class="data-section"><h2>Arms</h2><table><caption>Benchmark arms</caption><thead><tr><th scope="col">Arm</th><th scope="col">Runs</th><th scope="col">${escape(objectiveLabel)}</th><th scope="col">Outcome</th><th scope="col">Absolute change</th></tr></thead><tbody><tr><th scope="row">${escape(report.baseline.comparisonId)}</th><td>${report.baseline.actualRuns}/${report.baseline.expectedRuns}</td><td>${formatMetric(objective, report.baseline.values[objective])}</td><td>${escape(formatQualitySummary(report.comparison.cases.flatMap((item) => item.attempts.map((attempt) => attempt.baselineQuality).filter((quality): quality is BenchmarkAttemptQuality => quality !== undefined))))}</td><td>—</td></tr><tr><th scope="row">${escape(report.candidate.comparisonId)}</th><td>${report.candidate.actualRuns}/${report.candidate.expectedRuns}</td><td>${formatMetric(objective, report.candidate.values[objective])}</td><td>${escape(formatQualitySummary(report.comparison.cases.flatMap((item) => item.attempts.map((attempt) => attempt.candidateQuality).filter((quality): quality is BenchmarkAttemptQuality => quality !== undefined))))}</td><td class="change-value ${changeClass(report, report.comparison.averageImprovementPercent)}" aria-label="Absolute change ${formatMetric(objective, report.candidate.deltas[objective], true)}; ${escape(formatAssessment(overallAssessment))}">${formatMetric(objective, report.candidate.deltas[objective], true)}</td></tr></tbody></table></section><section class="data-section"><h2>Tests</h2><div class="test-list"><div class="test-columns"><span>Test</span><span>Baseline (${reducer})</span><span>Candidate (${reducer})</span><span>Raw change</span></div>${tests || '<p class="empty-list">No tests.</p>'}</div></section></main></body></html>\n`;
 }
 
 export function renderBenchmarkIndexHtml(reports: readonly BenchmarkReportData[]): string {
@@ -97,8 +100,9 @@ function renderBenchmarkRow(report: BenchmarkReportData, scale: ChangeScale): st
   const minimum = report.comparison.minChangePercent;
   const maximum = report.comparison.maxChangePercent;
   const chart = changeChart(report, average, minimum, maximum, scale, report.comparison.expectedCases);
-  const assessmentText = formatAssessment(assessment(report, report.comparison.averageImprovementPercent));
-  return `<article class="benchmark-row" data-benchmark-id="${escape(report.id)}"><div class="benchmark-name"><a href="${encodeURIComponent(report.id)}/results.html">${escape(report.definition.label)}</a><div class="benchmark-meta"><span>${escape(report.candidate.comparisonId)} vs ${escape(report.baseline.comparisonId)}</span>${renderStatus(states)}</div></div>${chart}<strong class="change-value ${changeClass(report, report.comparison.averageImprovementPercent)}">${formatPercent(average)}<small>${escape(assessmentText)}</small></strong><span class="range-value">${formatRange(minimum, maximum)}</span></article>`;
+  const overallAssessment = assessment(report, report.comparison.averageImprovementPercent);
+  const unfavorable = overallAssessment === 'unfavorable' ? '<span class="status-text bad">unfavorable</span>' : '';
+  return `<article class="benchmark-row" data-benchmark-id="${escape(report.id)}"><div class="benchmark-name"><a href="${encodeURIComponent(report.id)}/results.html">${escape(report.definition.label)}</a><div class="benchmark-meta"><span>${escape(report.candidate.comparisonId)} vs ${escape(report.baseline.comparisonId)}</span>${renderStatus(states)}${unfavorable}</div></div>${chart}<strong class="change-value ${assessmentClass(overallAssessment)}">${formatPercent(average)}</strong><span class="range-value">${formatRange(minimum, maximum)}</span></article>`;
 }
 
 function changeChart(
@@ -194,6 +198,10 @@ function categories(quality: BenchmarkAttemptQuality | undefined): string {
 
 function formatQuality(quality: BenchmarkAttemptQuality | undefined): string {
   if (!quality) return 'Unavailable';
+  if (quality.status === 'invalid') {
+    const details = quality.categories.join(', ');
+    return details ? `Invalid · ${details}` : 'Invalid';
+  }
   if (quality.status === 'timeout') return 'Timed out';
   if (quality.status === 'passed' && quality.pass) return 'Passed';
   const details = quality.categories.join(', ');
@@ -203,35 +211,49 @@ function formatQuality(quality: BenchmarkAttemptQuality | undefined): string {
 
 function formatQualitySummary(qualities: readonly BenchmarkAttemptQuality[]): string {
   if (qualities.length === 0) return 'Unavailable';
-  const passed = qualities.filter((quality) => quality.status === 'passed' && quality.pass).length;
-  const failed = qualities.length - passed;
-  if (failed === 0) return `${passed}/${qualities.length} passed`;
-  const categories = [...new Set(qualities.flatMap((quality) => quality.categories))].join(', ');
-  return `${passed}/${qualities.length} passed; ${failed} failed${categories ? ` · ${categories}` : ''}`;
+  const invalid = qualities.filter((quality) => quality.status === 'invalid').length;
+  const valid = qualities.filter((quality) => quality.status !== 'invalid');
+  const passed = valid.filter((quality) => quality.status === 'passed' && quality.pass).length;
+  const failed = valid.length - passed;
+  const summary = valid.length > 0 ? `${passed}/${valid.length} passed` : 'No valid grades';
+  const categories = [...new Set(valid.filter(isQualityFailure).flatMap((quality) => quality.categories))].join(', ');
+  return `${summary}${failed > 0 ? `; ${failed} failed${categories ? ` · ${categories}` : ''}` : ''}${invalid > 0 ? `; ${invalid} invalid` : ''}`;
 }
 
 function qualityClass(quality: BenchmarkAttemptQuality | undefined): string {
   if (!quality) return 'muted';
-  return quality.status === 'passed' && quality.pass ? 'ok' : 'bad';
+  if (quality.status === 'invalid') return 'muted';
+  return isQualityFailure(quality) ? 'bad' : 'ok';
 }
 
 function qualityClassForList(qualities: readonly BenchmarkAttemptQuality[]): string {
   if (qualities.length === 0) return 'muted';
-  return qualities.every((quality) => quality.status === 'passed' && quality.pass) ? 'ok' : 'bad';
+  if (qualities.some(isQualityFailure)) return 'bad';
+  return qualities.some((quality) => quality.status === 'invalid') ? 'muted' : 'ok';
 }
 
-type ChangeAssessment = 'favorable' | 'unfavorable' | 'no change' | 'unavailable' | 'quality regression';
+type ChangeAssessment = 'favorable' | 'unfavorable' | 'no change' | 'unavailable' | 'quality regression' | 'invalid grading';
 
 function assessment(report: BenchmarkReportData, improvement: number | undefined): ChangeAssessment {
-  return assessmentForQualities(report, improvement, []);
+  if (report.baseline.state === 'quality regression' || report.candidate.state === 'quality regression') return 'quality regression';
+  return movementAssessment(improvement);
 }
 
-function assessmentForQualities(report: BenchmarkReportData, improvement: number | undefined, qualities: readonly (BenchmarkAttemptQuality | undefined)[]): ChangeAssessment {
-  if (report.baseline.state === 'quality regression' || report.candidate.state === 'quality regression'
-    || qualities.some((quality) => quality !== undefined && (!quality.pass || quality.status !== 'passed'))) return 'quality regression';
+function assessmentForQualities(improvement: number | undefined, qualities: readonly (BenchmarkAttemptQuality | undefined)[]): ChangeAssessment {
+  if (qualities.some((quality) => quality !== undefined && isQualityFailure(quality))) return 'quality regression';
+  if (qualities.some((quality) => quality?.status === 'invalid')) return 'invalid grading';
+  if (qualities.some((quality) => quality === undefined)) return 'unavailable';
+  return movementAssessment(improvement);
+}
+
+function movementAssessment(improvement: number | undefined): ChangeAssessment {
   if (improvement === undefined) return 'unavailable';
   if (Math.abs(improvement) < 0.05) return 'no change';
   return improvement > 0 ? 'favorable' : 'unfavorable';
+}
+
+function isQualityFailure(quality: BenchmarkAttemptQuality): boolean {
+  return quality.status !== 'invalid' && (quality.status !== 'passed' || !quality.pass);
 }
 
 function formatAssessment(value: ChangeAssessment): string {
@@ -239,7 +261,10 @@ function formatAssessment(value: ChangeAssessment): string {
 }
 
 function changeClass(report: BenchmarkReportData, improvement: number | undefined): 'positive' | 'negative' | 'neutral' {
-  const value = assessment(report, improvement);
+  return assessmentClass(assessment(report, improvement));
+}
+
+function assessmentClass(value: ChangeAssessment): 'positive' | 'negative' | 'neutral' {
   return value === 'favorable' ? 'positive' : value === 'unfavorable' || value === 'quality regression' ? 'negative' : 'neutral';
 }
 
@@ -292,8 +317,8 @@ h2 { margin: 0 0 14px; font-size: 19px; }
 .result-line .change-value.negative { color: var(--negative); }
 .result-line .change-value.neutral { color: var(--muted); }
 .separator { margin: 0 3px; color: #a2a7b0; }
-.status-text { color: var(--muted); font-size: 12px; }
-.status-text.bad { color: var(--negative); }
+.status-text { flex: 0 0 auto; padding: 1px 6px; border: 1px solid var(--rule); border-radius: 999px; color: var(--muted); font-size: 10px; }
+.status-text.bad { border-color: #edc2bc; background: #fff5f3; color: var(--negative); }
 .benchmark-list { border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
 .benchmark-columns, .benchmark-row { display: grid; grid-template-columns: minmax(230px, 1.35fr) minmax(320px, 2fr) 90px 160px; gap: 18px; align-items: center; }
 .benchmark-columns { padding: 10px 14px; color: var(--muted); border-bottom: 1px solid var(--rule); font: 600 10px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
@@ -303,7 +328,7 @@ h2 { margin: 0 0 14px; font-size: 19px; }
 .benchmark-name { min-width: 0; }
 .benchmark-name > a { display: block; overflow: hidden; font-weight: 650; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
 .benchmark-name > a:hover { text-decoration: underline; }
-.benchmark-meta { display: flex; gap: 6px; min-width: 0; color: var(--muted); font: 11px ui-monospace, monospace; }
+.benchmark-meta { display: flex; gap: 6px; align-items: center; min-width: 0; color: var(--muted); font: 11px ui-monospace, monospace; }
 .benchmark-meta > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .change-chart { position: relative; height: 24px; }
 .change-track { position: absolute; inset: 11px 0 auto; height: 2px; background: var(--track); }
@@ -314,7 +339,6 @@ h2 { margin: 0 0 14px; font-size: 19px; }
 .change-range::after { content: ""; position: absolute; top: 8px; left: 0; width: 100%; border-top: 1px solid #596170; }
 .change-chart.unavailable { display: flex; align-items: center; color: var(--muted); }
 .change-value { font-variant-numeric: tabular-nums; }
-.change-value small { display: block; font-size: 10px; font-weight: 500; }
 .objective { margin: 7px 0 0; color: var(--muted); font-size: 12px; }
 .quality-warning { margin: 16px 0 0; color: var(--negative); font-size: 12px; }
 .change-value.positive { color: var(--positive); }
@@ -327,9 +351,9 @@ th, td { padding: 10px 8px; border-bottom: 1px solid var(--rule); text-align: le
 thead th { color: var(--muted); font: 600 10px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
 tbody th { font-weight: 600; }
 .test-list { overflow-x: auto; border-top: 1px solid var(--rule); }
-.test-columns, .test-summary, .attempt-row { display: grid; grid-template-columns: minmax(250px, 2fr) repeat(4, minmax(125px, 1fr)); gap: 16px; align-items: center; min-width: 860px; }
+.test-columns, .test-summary, .attempt-row { display: grid; grid-template-columns: minmax(250px, 2fr) repeat(3, minmax(125px, 1fr)); gap: 16px; align-items: center; min-width: 720px; }
 .test-columns { padding: 10px 12px; color: var(--muted); border-bottom: 1px solid var(--rule); font: 600 10px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
-.test-block { min-width: 860px; border-bottom: 1px solid var(--rule); }
+.test-block { min-width: 720px; border-bottom: 1px solid var(--rule); }
 .test-block:last-child { border-bottom: 0; }
 .test-summary { padding: 12px; cursor: pointer; list-style: none; }
 .test-summary::-webkit-details-marker { display: none; }

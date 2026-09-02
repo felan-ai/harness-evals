@@ -2,8 +2,10 @@ import { posix as posixPath, resolve as resolvePath } from 'node:path';
 import type { ConfigMount } from '../adapters/types.js';
 import type { TestCaseVerifierConfig, WorkspaceConfig, DockerConfig, NetworkPolicyConfig } from '../config/schema.js';
 import { runInDocker } from '../docker/runner.js';
-import { readVerifierReward } from './reward.js';
+import { readVerifierReward, removeExistingVerifierReward } from './reward.js';
 import type { VerifierRunResult } from './types.js';
+
+const DEFAULT_INFRASTRUCTURE_EXIT_CODES = new Set([137]);
 
 export interface RunVerifierInput {
   verifier: TestCaseVerifierConfig;
@@ -20,6 +22,11 @@ export interface RunVerifierInput {
 export async function runVerifier(input: RunVerifierInput): Promise<VerifierRunResult> {
   const startedAt = new Date().toISOString();
   const startedAtMs = Date.now();
+  try {
+    await removeExistingVerifierReward(input.workspaceDir, input.verifier);
+  } catch (error) {
+    return verifierSetupError(error instanceof Error ? error.message : String(error));
+  }
   const argv = [input.verifier.command, ...(input.verifier.args ?? [])];
   const network = verifierNetworkPolicy(input.verifier.network);
   const configMounts = verifierAssetMounts(input.verifier, input.projectRoot);
@@ -49,8 +56,9 @@ export async function runVerifier(input: RunVerifierInput): Promise<VerifierRunR
   }
 
   const error = verifierError(docker.errorMessage, rewardError, docker.exitCode);
-  const pass = !docker.timedOut && !docker.errorMessage && !rewardError && docker.exitCode === 0 && verifierRewardPasses(reward);
-  const status = docker.timedOut ? 'timeout' : docker.errorMessage || rewardError ? 'error' : pass ? 'passed' : 'failed';
+  const invalidReason = verifierInvalidReason(input.verifier, docker.timedOut, docker.errorMessage, rewardError, docker.exitCode);
+  const pass = !invalidReason && docker.exitCode === 0 && verifierRewardPasses(reward);
+  const status = invalidReason ? 'invalid' : pass ? 'passed' : 'failed';
 
   return {
     status,
@@ -68,6 +76,7 @@ export async function runVerifier(input: RunVerifierInput): Promise<VerifierRunR
       reward,
       network,
       rewardError,
+      invalidReason,
     },
   };
 }
@@ -75,7 +84,7 @@ export async function runVerifier(input: RunVerifierInput): Promise<VerifierRunR
 export function verifierSetupError(message: string): VerifierRunResult {
   const now = new Date().toISOString();
   return {
-    status: 'error',
+    status: 'invalid',
     pass: false,
     exitCode: null,
     durationMs: 0,
@@ -84,8 +93,24 @@ export function verifierSetupError(message: string): VerifierRunResult {
     startedAt: now,
     completedAt: now,
     error: message,
-    metadata: { setupError: message },
+    metadata: { setupError: message, invalidReason: 'setup' },
   };
+}
+
+function verifierInvalidReason(
+  verifier: TestCaseVerifierConfig,
+  timedOut: boolean,
+  dockerError: string | undefined,
+  rewardError: string | undefined,
+  exitCode: number | null,
+): string | undefined {
+  if (timedOut) return 'timeout';
+  if (dockerError) return 'docker';
+  if (rewardError) return 'reward';
+  if (exitCode !== null && (DEFAULT_INFRASTRUCTURE_EXIT_CODES.has(exitCode) || verifier.infrastructureExitCodes?.includes(exitCode))) {
+    return `exit:${exitCode}`;
+  }
+  return undefined;
 }
 
 function verifierAssetMounts(verifier: TestCaseVerifierConfig, projectRoot: string): ConfigMount[] {

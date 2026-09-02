@@ -161,7 +161,7 @@ function summarizeSteps(steps: Record<string, unknown>[]): TestCaseAgentReportCe
 
 function resultStatus(result: Record<string, unknown>): TestCaseAgentReportCell['status'] {
   const status = stringValue(result.status);
-  if (status === 'passed' || status === 'failed' || status === 'error' || status === 'skipped' || status === 'incomplete') return status;
+  if (status === 'passed' || status === 'failed' || status === 'invalid' || status === 'error' || status === 'skipped' || status === 'incomplete') return status;
   if (result.pass === true) return 'passed';
   if (result.pass === false) return 'failed';
   return 'incomplete';

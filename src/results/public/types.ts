@@ -1,6 +1,7 @@
 export type PublicRunStatus =
   | 'passed'
   | 'failed'
+  | 'invalid'
   | 'error'
   | 'skipped'
   | 'timeout'

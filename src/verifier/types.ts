@@ -1,7 +1,7 @@
 import type { TestCaseVerifierConfig } from '../config/schema.js';
 import type { DockerCommandMetadata } from '../docker/runner.js';
 
-export type VerifierStatus = 'passed' | 'failed' | 'timeout' | 'error';
+export type VerifierStatus = 'passed' | 'failed' | 'invalid' | 'timeout' | 'error';
 
 export interface VerifierRewardResult {
   path: string;

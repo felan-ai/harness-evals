@@ -9,7 +9,7 @@ import type { WorkspaceDiff } from '../workspace/diff.js';
 import type { NumericMetrics } from '../metrics.js';
 
 export type ScenarioStepStatus = 'passed' | 'failed' | 'skipped' | 'timeout' | 'error';
-export type ScenarioRunStatus = 'passed' | 'failed' | 'timeout' | 'error';
+export type ScenarioRunStatus = 'passed' | 'failed' | 'invalid' | 'timeout' | 'error';
 
 export interface ScenarioRunContext {
   scenarioId: string;

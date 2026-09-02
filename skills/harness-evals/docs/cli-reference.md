@@ -24,6 +24,21 @@ per-run settings and selected credentials under an isolated `FELAN_AGENT_DIR`.
 
 ## Commands
 
+### `reprocess`
+
+Regrade retained runs without executing an agent or making provider calls:
+
+```bash
+harness-evals reprocess --source <benchmark>=<completed-batch> [--source ...] [--concurrency n] [--dry-run]
+```
+
+The command copies each retained workspace to a temporary directory, reruns
+only deterministic assertions and network-isolated verifiers, and writes
+non-publishable derived runs with source provenance. It rejects provider-backed
+judges, networked verifiers, hidden patches, and incomplete source batches.
+Use `--dry-run` to validate the matrix without executing verifiers. Concurrency
+defaults to `1` to limit verifier memory usage.
+
 ### `run`
 
 Run the selected case/agent matrix.

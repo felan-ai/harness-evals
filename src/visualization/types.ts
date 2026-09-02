@@ -1,7 +1,7 @@
 import type { CostRollup, CostSummary } from '../cost/types.js';
 
 export type VisualizationFormat = 'html' | 'json' | 'csv';
-export type RunReportStatus = 'passed' | 'failed' | 'error' | 'incomplete';
+export type RunReportStatus = 'passed' | 'failed' | 'invalid' | 'error' | 'incomplete';
 
 export interface RunReport {
   runId: string;
@@ -43,7 +43,7 @@ export interface TestCaseReportRow {
 }
 
 export interface TestCaseAgentReportCell {
-  status: 'passed' | 'failed' | 'error' | 'skipped' | 'incomplete';
+  status: 'passed' | 'failed' | 'invalid' | 'error' | 'skipped' | 'incomplete';
   score?: number;
   durationMs?: number;
   cost?: CostSummary;

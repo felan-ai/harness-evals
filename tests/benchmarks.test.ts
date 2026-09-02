@@ -68,6 +68,8 @@ test('benchmark analyzer reduces trials, macro-averages cases, and computes base
   expect(html.match(/class="benchmark-row"/g)).toHaveLength(1);
   expect(html).toContain('<h1>Benchmarks</h1>');
   expect(html).toContain('Average change +25.0%; range -50.0% to +100.0% across 2 tests; unfavorable');
+  expect(html).toContain('<span class="status-text bad">unfavorable</span>');
+  expect(html).not.toContain('<small>unfavorable</small>');
   expect(html).toContain('-50.0% to +100.0%');
   expect(html).toContain('class="change-range"');
   expect(html).toContain('--range-left:0.0000%;--range-width:100.0000%');
@@ -78,6 +80,7 @@ test('benchmark analyzer reduces trials, macro-averages cases, and computes base
   expect(detailHtml.match(/<\/summary><div class="attempt-list">/g)).toHaveLength(2);
   expect(detailHtml.match(/class="attempt-row"/g)).toHaveLength(6);
   expect(detailHtml).toContain('<span>Attempt 1</span>');
+  expect(detailHtml).not.toContain('>Assessment<');
   expect(detailHtml).not.toContain('<caption>Attempts for');
   expect(detailHtml).not.toContain('<th scope="col">Attempt</th>');
   expect(renderBenchmarkCsv(report)).toContain('changePercent,improvementPercent,averageChangePercent,minChangePercent,maxChangePercent');
@@ -156,6 +159,18 @@ test('a collapsed test range does not draw a line at the bar endpoint', () => {
   expect(html).not.toContain('class="change-range"');
 });
 
+test('favorable home-page changes rely on the green value without a label', () => {
+  const singleCase = { ...definition, select: { cases: ['one'] } };
+  const runs = [
+    ...[1, 2, 3].map((attempt) => run('base', 'one', attempt, 10)),
+    ...[1, 2, 3].map((attempt) => run('candidate', 'one', attempt, 5)),
+  ];
+  const html = renderBenchmarkIndexHtml([analyzeBenchmark({ id: 'favorable', definition: singleCase, runs })]);
+  expect(html).toContain('<strong class="change-value positive">-50.0%</strong>');
+  expect(html).not.toContain('>favorable</span>');
+  expect(html).not.toContain('<small>favorable</small>');
+});
+
 test('quality gates use every trial instead of the objective median', () => {
   const runs = [
     ...[1, 2, 3].map((attempt) => run('base', 'one', attempt, attempt)),
@@ -182,6 +197,25 @@ test('change direction remains visible when a quality gate fails', () => {
   expect(html).toContain('class="change-chart negative"');
   expect(html).toContain('class="status-text bad">quality regression</span>');
   expect(html).toContain('class="quality bad">Failed');
+});
+
+test('benchmark-wide quality regression does not relabel passing tests and attempts', () => {
+  const runs = [
+    ...[1, 2, 3].map((attempt) => run('base', 'one', attempt, 10)),
+    ...[1, 2, 3].map((attempt) => run('base', 'two', attempt, 10)),
+    run('candidate', 'one', 1, 5, false), run('candidate', 'one', 2, 5), run('candidate', 'one', 3, 5),
+    ...[1, 2, 3].map((attempt) => run('candidate', 'two', attempt, 5)),
+  ];
+  const report = analyzeBenchmark({ id: 'local-assessment', definition, runs });
+  expect(report.candidate.state).toBe('quality regression');
+
+  const html = renderBenchmarkHtml(report);
+  const passingTest = html.match(/<details class="test-block"><summary[^>]*><span class="test-name">two<\/span>[\s\S]*?<\/details>/)?.[0];
+  expect(passingTest).toBeDefined();
+  expect(passingTest).toContain('class="change-value positive">-50.0%');
+  expect(passingTest).toContain('aria-label="Raw change -50.0%; favorable"');
+  expect(passingTest).not.toContain('<span>favorable</span>');
+  expect(passingTest).not.toContain('quality regression');
 });
 
 test('zero change uses a neutral style', () => {
@@ -240,6 +274,29 @@ test('missing quality-gate observations make an arm incomplete', () => {
   delete runs[0]?.metrics?.['quality.passRate'];
   const report = analyzeBenchmark({ id: 'cost', definition, runs });
   expect(report.baseline.state).toBe('incomplete');
+});
+
+test('invalid attempts are excluded from quality gates without making the matrix incomplete', () => {
+  const runs = [
+    ...[1, 2, 3].map((attempt) => run('base', 'one', attempt, attempt)),
+    ...[1, 2, 3].map((attempt) => run('base', 'two', attempt, attempt)),
+    ...[1, 2, 3].map((attempt) => run('candidate', 'one', attempt, attempt)),
+    ...[1, 2, 3].map((attempt) => run('candidate', 'two', attempt, attempt)),
+  ];
+  const invalid = runs.find((entry) => entry.agentName === 'candidate' && entry.caseId === 'one' && entry.attemptNumber === 1);
+  if (!invalid) throw new Error('missing test run');
+  invalid.status = 'invalid';
+  invalid.pass = false;
+  invalid.failures = { categories: ['infrastructure'] };
+  delete invalid.metrics?.['quality.passRate'];
+
+  const report = analyzeBenchmark({ id: 'cost', definition: { ...definition, qualityGates: [{ metric: 'quality.passRate', min: 0.8 }] }, runs });
+  expect(report.candidate.state).toBe('eligible');
+  expect(report.candidate.gateResults[0]?.value).toBe(1);
+  expect(report.comparison.cases[0]?.attempts[0]?.candidateQuality?.status).toBe('invalid');
+  const html = renderBenchmarkHtml(report);
+  expect(html).toContain('Invalid · infrastructure');
+  expect(html).toContain('invalid grading');
 });
 
 test('reports expose both quality regression and incomplete states', () => {

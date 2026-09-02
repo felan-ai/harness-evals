@@ -225,10 +225,21 @@ function buildArm(agentName: string, definition: BenchmarkDefinition, caseIds: s
   const expectedRuns = caseIds.length * definition.trials;
   const actualRuns = armRuns.length;
   const requiredMetrics = new Set([definition.objective.metric, ...definition.qualityGates.map((gate) => gate.metric)]);
+  const qualityMetrics = new Set(definition.qualityGates.map((gate) => gate.metric));
   const complete = actualRuns === expectedRuns && cases.every((item) =>
-    [...requiredMetrics].every((metric) => hasExpectedAttempts(item, metric, definition.trials)));
+    [...requiredMetrics].every((metric) => qualityMetrics.has(metric)
+      ? hasQualityCoverage(item, metric, definition.trials)
+      : hasExpectedAttempts(item, metric, definition.trials)));
   const state: BenchmarkArmState = !complete ? 'incomplete' : gateResults.some((gate) => !gate.pass) ? 'quality regression' : values[definition.objective.metric] === undefined ? 'metric unavailable' : definition.trials < 2 ? 'inconclusive' : 'eligible';
   return { agentName, comparisonId, state, expectedRuns, actualRuns, missingRuns: Math.max(0, expectedRuns - actualRuns), cases, values, deltas: {}, gateResults };
+}
+
+function hasQualityCoverage(item: BenchmarkCaseResult, metric: string, trials: number): boolean {
+  const attempts = item.attempts[metric] ?? [];
+  const invalidAttempts = item.qualityAttempts.filter((attempt) => attempt.status === 'invalid').map((attempt) => attempt.attemptNumber);
+  const covered = new Set([...attempts.map((attempt) => attempt.attemptNumber), ...invalidAttempts]);
+  if (attempts.length + invalidAttempts.length !== trials) return false;
+  return covered.size === trials && [...covered].every((attempt) => attempt >= 1 && attempt <= trials);
 }
 
 function hasExpectedAttempts(item: BenchmarkCaseResult | undefined, metric: string, trials: number): boolean {

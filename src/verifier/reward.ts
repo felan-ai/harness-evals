@@ -1,12 +1,12 @@
-import { readFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { lstat, readFile, realpath, rm } from 'node:fs/promises';
+import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { TestCaseVerifierConfig, VerifierRewardFormat } from '../config/schema.js';
 import type { VerifierRewardResult } from './types.js';
 
 export async function readVerifierReward(workspaceDir: string, verifier: TestCaseVerifierConfig): Promise<VerifierRewardResult | undefined> {
   if (!verifier.rewardFile) return undefined;
 
-  const path = join(workspaceDir, verifier.rewardFile);
+  const path = await safeRewardPath(workspaceDir, verifier.rewardFile, true);
   const raw = await readFile(path, 'utf8');
   const format = resolveRewardFormat(verifier.rewardFile, verifier.rewardFormat);
   const values = format === 'json' ? parseJsonReward(raw, verifier.rewardFile) : parseTextReward(raw, verifier.rewardFile);
@@ -26,6 +26,53 @@ export async function readVerifierReward(workspaceDir: string, verifier: TestCas
     primary,
     binary: numericValues.length === 1 && (numericValues[0] === 0 || numericValues[0] === 1),
   };
+}
+
+export async function removeExistingVerifierReward(workspaceDir: string, verifier: TestCaseVerifierConfig): Promise<void> {
+  if (!verifier.rewardFile) return;
+  const path = await safeRewardPath(workspaceDir, verifier.rewardFile, false);
+  let status;
+  try {
+    status = await lstat(path);
+  } catch (error) {
+    if (isMissing(error)) return;
+    throw error;
+  }
+  if (!status.isFile() || status.isSymbolicLink() || status.nlink !== 1) {
+    throw new Error(`${verifier.rewardFile} must be a regular file with one hard link`);
+  }
+  await rm(path, { force: true });
+}
+
+async function safeRewardPath(workspaceDir: string, rewardFile: string, requireFile: boolean): Promise<string> {
+  const workspace = await realpath(workspaceDir);
+  const path = resolve(workspace, rewardFile);
+  const relativePath = relative(workspace, path);
+  if (!relativePath || relativePath.startsWith(`..${sep}`) || relativePath === '..' || isAbsolute(relativePath)) {
+    throw new Error(`${rewardFile} must resolve inside the workspace`);
+  }
+
+  const segments = relativePath.split(sep);
+  let current = workspace;
+  for (const [index, segment] of segments.entries()) {
+    current = join(current, segment);
+    let status;
+    try {
+      status = await lstat(current);
+    } catch (error) {
+      if (isMissing(error) && (!requireFile || index < segments.length - 1)) continue;
+      throw error;
+    }
+    if (status.isSymbolicLink()) throw new Error(`${rewardFile} may not use symbolic links`);
+    if (index < segments.length - 1 && !status.isDirectory()) {
+      throw new Error(`${rewardFile} has a non-directory parent`);
+    }
+  }
+  return path;
+}
+
+function isMissing(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
 function resolveRewardFormat(path: string, configured: VerifierRewardFormat | undefined): 'json' | 'text' {

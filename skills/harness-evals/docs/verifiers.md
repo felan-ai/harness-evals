@@ -147,6 +147,7 @@ verifier:
   cwd: /workspace              # optional; relative values resolve under the workspace container path
   env: [CI]                    # optional explicit env vars to forward to the verifier
   timeoutMs: 120000            # optional verifier timeout
+  infrastructureExitCodes: [75] # optional additional exit codes classified as invalid
   rewardFile: reward.txt       # optional workspace-relative reward file
   rewardFormat: auto           # auto | text | json
   hiddenPatch: evals/hidden/x.patch   # optional patch applied before grading
@@ -156,6 +157,13 @@ verifier:
   network:
     mode: none                 # none (default) | default | allowlist
 ```
+
+Verifier exit code `137` is always classified as infrastructure-invalid because
+it represents `SIGKILL`, commonly caused by an out-of-memory kill. Verifier
+wrappers that run child processes must preserve a child `137` as their own exit
+code. Use `infrastructureExitCodes` only for additional verifier-specific
+infrastructure signals. Invalid runs remain visible but do not contribute a
+failure observation to `quality.passRate`.
 
 ## What lands in artifacts
 

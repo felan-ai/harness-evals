@@ -10,8 +10,8 @@ import type { BenchmarkRunMetadata } from '../config/schema.js';
  * never legacy result.json files, which can be hundreds of megabytes.
  */
 
-export type ScannedRunStatus = 'passed' | 'failed' | 'error' | 'skipped' | 'timeout' | 'incomplete';
-export type ScannedFailureCategory = 'assertion' | 'verifier' | 'timeout' | 'setup' | 'adapter' | 'incomplete' | 'unknown';
+export type ScannedRunStatus = 'passed' | 'failed' | 'invalid' | 'error' | 'skipped' | 'timeout' | 'incomplete';
+export type ScannedFailureCategory = 'assertion' | 'verifier' | 'infrastructure' | 'timeout' | 'setup' | 'adapter' | 'incomplete' | 'unknown';
 
 export interface ScannedFailureSummary {
   categories: ScannedFailureCategory[];
@@ -172,7 +172,7 @@ export function dedupeNewestValid(runs: readonly ScannedTaskRun[]): ScannedTaskR
   return [...byKey.values()];
 }
 
-const GRADED_STATUSES = new Set<ScannedRunStatus>(['passed', 'failed', 'skipped', 'timeout']);
+const GRADED_STATUSES = new Set<ScannedRunStatus>(['passed', 'failed', 'invalid', 'skipped', 'timeout']);
 
 function preferredRun(a: ScannedTaskRun, b: ScannedTaskRun): ScannedTaskRun {
   const aGraded = GRADED_STATUSES.has(a.status);
@@ -334,6 +334,7 @@ async function readFailureSummary(
   const hasRequiredFailure = (assertions?.failedRequired ?? 0) > 0;
   if (hasRequiredFailure) categories.add('assertion');
   if (status === 'timeout') categories.add('timeout');
+  if (status === 'invalid') categories.add('infrastructure');
   if (status === 'incomplete') categories.add('incomplete');
   if (status === 'error') categories.add(steps.length === 0 ? 'setup' : 'adapter');
   if (verifier && verifier.pass === false) categories.add('verifier');
@@ -387,6 +388,7 @@ function normalizeStatus(status: string | undefined): ScannedRunStatus {
   switch (status) {
     case 'passed':
     case 'failed':
+    case 'invalid':
     case 'error':
     case 'skipped':
     case 'timeout':

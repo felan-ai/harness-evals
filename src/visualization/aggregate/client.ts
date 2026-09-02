@@ -11,7 +11,7 @@
 export const AGGREGATE_CLIENT_JS = String.raw`'use strict';
 var DATA = JSON.parse(document.getElementById('report-data').textContent);
 var GRADED = { passed: true, failed: true, timeout: true };
-var STATUS_ORDER = ['passed', 'failed', 'error', 'timeout', 'skipped', 'incomplete'];
+var STATUS_ORDER = ['passed', 'failed', 'invalid', 'error', 'timeout', 'skipped', 'incomplete'];
 var BAR_OPACITY = [0.9, 0.62, 0.42, 0.28];
 
 var state = {

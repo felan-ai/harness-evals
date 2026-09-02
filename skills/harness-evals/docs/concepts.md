@@ -8,6 +8,13 @@ A run builds a matrix of test cases × agents, gives each selected agent a works
 
 ## Glossary
 
+### Reprocessing
+
+Reprocessing is an offline grading operation over retained run artifacts. It
+never reruns an agent. The framework clones the retained workspace, reruns
+supported assertions and verifiers, preserves the source run unchanged, and
+stores derived results with lineage and `publicationEligible: false`.
+
 ### Test case
 
 A test case is one YAML file that defines what an agent should do and how success is checked.

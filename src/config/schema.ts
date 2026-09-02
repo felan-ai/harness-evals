@@ -120,6 +120,7 @@ export interface TestCaseVerifierConfig {
   cwd?: string;
   env?: string[];
   timeoutMs?: number;
+  infrastructureExitCodes?: number[];
   rewardFile?: string;
   rewardFormat?: VerifierRewardFormat;
   hiddenPatch?: string;

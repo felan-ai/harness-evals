@@ -11,11 +11,9 @@ export function metricsForStep(input: { durationMs: number; pass: boolean; cost:
   return metrics;
 }
 
-export function metricsForRun(input: { durationMs: number; pass: boolean; cost: CostSummary }): NumericMetrics {
-  const metrics: NumericMetrics = {
-    'duration.ms': input.durationMs,
-    'quality.passRate': input.pass ? 1 : 0,
-  };
+export function metricsForRun(input: { durationMs: number; pass: boolean; cost: CostSummary; qualityValid?: boolean }): NumericMetrics {
+  const metrics: NumericMetrics = { 'duration.ms': input.durationMs };
+  if (input.qualityValid !== false) metrics['quality.passRate'] = input.pass ? 1 : 0;
   addCostMetrics(metrics, input.cost);
   return metrics;
 }

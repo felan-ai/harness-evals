@@ -748,7 +748,7 @@ function readTestCaseMocks(value: unknown, field: string): TestCaseMockConfig | 
 function readVerifierConfig(value: unknown, field: string): TestCaseVerifierConfig | undefined {
   if (value === undefined || value === null) return undefined;
   if (!isRecord(value)) throw new Error(`${field} must be an object`);
-  assertKnownKeys(value, ['command', 'args', 'cwd', 'env', 'timeoutMs', 'rewardFile', 'rewardFormat', 'hiddenPatch', 'captureModelPatch', 'network', 'assetsDir', 'assetsTarget'], field);
+  assertKnownKeys(value, ['command', 'args', 'cwd', 'env', 'timeoutMs', 'infrastructureExitCodes', 'rewardFile', 'rewardFormat', 'hiddenPatch', 'captureModelPatch', 'network', 'assetsDir', 'assetsTarget'], field);
   const command = readOptionalString(value.command, `${field}.command`);
   if (!command) throw new Error(`${field}.command is required`);
   const rewardFile = readRelativePath(value.rewardFile, `${field}.rewardFile`);
@@ -762,6 +762,7 @@ function readVerifierConfig(value: unknown, field: string): TestCaseVerifierConf
     cwd: readOptionalString(value.cwd, `${field}.cwd`),
     env: readOptionalStringArray(value.env, `${field}.env`),
     timeoutMs: readOptionalPositiveInteger(value.timeoutMs, `${field}.timeoutMs`),
+    infrastructureExitCodes: readExitCodes(value.infrastructureExitCodes, `${field}.infrastructureExitCodes`),
     rewardFile,
     rewardFormat,
     hiddenPatch,
@@ -770,6 +771,19 @@ function readVerifierConfig(value: unknown, field: string): TestCaseVerifierConf
     assetsDir,
     assetsTarget: readOptionalString(value.assetsTarget, `${field}.assetsTarget`),
   };
+}
+
+function readExitCodes(value: unknown, field: string): number[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.length === 0) throw new Error(`${field} must be a non-empty array`);
+  const codes = value.map((entry, index) => {
+    if (!Number.isInteger(entry) || (entry as number) < 1 || (entry as number) > 255) {
+      throw new Error(`${field}[${index}] must be an integer from 1 to 255`);
+    }
+    return entry as number;
+  });
+  if (new Set(codes).size !== codes.length) throw new Error(`${field} must not contain duplicates`);
+  return codes;
 }
 
 function readRewardFormat(value: unknown, field: string): VerifierRewardFormat | undefined {

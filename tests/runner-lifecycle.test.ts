@@ -247,6 +247,36 @@ assert:
   }
 });
 
+test('verifier exit 137 is invalid by default and excluded from quality metrics', async () => {
+  const root = await tempRoot();
+  const restoreDocker = await installFakeDocker(root);
+
+  try {
+    await writeHarnessProject(root, `
+id: verifier-infrastructure
+prompt: Say OK.
+config:
+  script: console.log('OK')
+verifier:
+  command: node
+  args: [-e, "process.exit(137)"]
+assert:
+  - type: contains
+    value: OK
+`);
+
+    const result = await runHarness({ cwd: root, adapters: [createLifecycleAdapter([])] });
+    const run = result.results[0];
+
+    expect(run.status).toBe('invalid');
+    expect(run.verifier?.status).toBe('invalid');
+    expect(run.verifier?.metadata.invalidReason).toBe('exit:137');
+    expect(run.metrics).not.toHaveProperty('quality.passRate');
+  } finally {
+    restoreDocker();
+  }
+});
+
 test('attempts expand runs and produce pass@k for binary verifier rewards', async () => {
   const root = await tempRoot();
   const restoreDocker = await installFakeDocker(root);

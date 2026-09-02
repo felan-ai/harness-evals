@@ -1091,7 +1091,7 @@ function buildTestRunResult(input: {
       })),
       workspace: input.workspace,
     }, input.redactions) as Record<string, unknown>,
-    metrics: metricsForRun({ durationMs: input.durationMs, pass: status === 'passed', cost }),
+    metrics: metricsForRun({ durationMs: input.durationMs, pass: status === 'passed', qualityValid: status !== 'invalid', cost }),
   };
 }
 
@@ -1175,6 +1175,7 @@ function buildRunStatus(steps: ScenarioStepResult[], verifier?: VerifierRunResul
   if (steps.length === 0) return 'error';
   if (steps.some((step) => step.status === 'error')) return 'error';
   if (steps.some((step) => step.status === 'timeout')) return 'timeout';
+  if (verifier?.status === 'invalid') return 'invalid';
   if (verifier?.status === 'error') return 'error';
   if (verifier?.status === 'timeout') return 'timeout';
   if (verifier && !verifier.pass) return 'failed';
@@ -1197,7 +1198,8 @@ function combineStepEvents(steps: ScenarioStepResult[]): ScenarioStepResult['eve
   return events;
 }
 
-function outputStatusForRun(status: ScenarioRunStatus): 'passed' | 'failed' | 'error' {
+function outputStatusForRun(status: ScenarioRunStatus): 'passed' | 'failed' | 'error' | 'incomplete' {
+  if (status === 'invalid') return 'incomplete';
   if (status === 'passed') return 'passed';
   if (status === 'error') return 'error';
   return 'failed';

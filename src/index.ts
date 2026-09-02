@@ -112,6 +112,8 @@ export type {
   PublicProvenance, PublicResultsIndex, PublicResultsObjectOptions, PublicResultsStore, PublicRunStatus, PublicRunSummary,
 } from './results/public/types.js';
 export type { HiddenPatchResult, ModelPatchArtifact, VerifierRewardResult, VerifierRunResult, VerifierStatus } from './verifier/types.js';
+export { reprocessRetained } from './regrade.js';
+export type { ReprocessOptions, ReprocessSource } from './regrade.js';
 export type { WorkspaceDiff } from './workspace/diff.js';
 export type { AgentEventsSummary, ToolCallSummary, MockCallSummary, CostReport, CostRollup, UsageReport } from './events/types.js';
 export {

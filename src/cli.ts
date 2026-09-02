@@ -20,6 +20,7 @@ import type { PublicBatchValidity } from './results/public/types.js';
 import { filterBenchmarkRuns, resolveBenchmarkSelection } from './benchmarks/select.js';
 import { analyzeBenchmark } from './benchmarks/analyze.js';
 import { renderBenchmarkCsv, renderBenchmarkHtml, renderBenchmarkIndexHtml, renderBenchmarkJson } from './benchmarks/render.js';
+import { reprocessRetained, type ReprocessSource } from './regrade.js';
 
 interface ParsedArgs extends CliOverrides {
   command: string;
@@ -38,10 +39,20 @@ interface ParsedArgs extends CliOverrides {
   validityNote?: string;
   supersededBy?: string;
   allowUnfinalized?: boolean;
+  sources?: ReprocessSource[];
+  probeRunId?: string;
 }
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
+
+  if (parsed.command === 'reprocess') {
+    const config = await loadHarnessConfig({ configPath: parsed.configPath });
+    if (!parsed.sources?.length) throw new Error('reprocess requires at least one --source <benchmark>=<batch>');
+    await reprocessRetained({ configPath: parsed.configPath ?? 'harness-evals.yaml', sources: parsed.sources, concurrency: parsed.concurrency ?? 1, dryRun: parsed.dryRun === true, probeRunId: parsed.probeRunId });
+    if (!parsed.dryRun) console.log(await writeBenchmarkIndex(config, parsed));
+    return;
+  }
 
   if (parsed.command === 'list') {
     const config = await loadHarnessConfig({ configPath: parsed.configPath });
@@ -225,6 +236,12 @@ function parseArgs(argv: string[]): ParsedArgs {
       case '--allow-unfinalized':
         parsed.allowUnfinalized = true;
         break;
+      case '--source':
+        (parsed.sources ??= []).push(parseSource(readValue(argv, arg)));
+        break;
+      case '--probe-run':
+        parsed.probeRunId = readValue(argv, arg);
+        break;
       case '--port':
         parsed.port = readPositiveInt(readValue(argv, arg), arg);
         break;
@@ -258,6 +275,15 @@ function readPositiveInt(value: string, flag: string): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 1) throw new Error(`${flag} must be a positive integer`);
   return parsed;
+}
+
+function parseSource(value: string): ReprocessSource {
+  const separator = value.indexOf('=');
+  const benchmarkId = value.slice(0, separator);
+  const batchId = value.slice(separator + 1);
+  if (separator <= 0 || !/^[a-z0-9][a-z0-9-]*$/u.test(benchmarkId)) throw new Error(`Invalid --source benchmark: ${value}`);
+  if (!/^\d{8}-\d{6}-[0-9a-f]{4}$/u.test(batchId)) throw new Error(`Invalid --source batch ID: ${value}`);
+  return { benchmarkId, batchId };
 }
 
 async function viewReport(parsed: ParsedArgs): Promise<void> {
@@ -618,6 +644,7 @@ Commands:
   Use view --benchmark all for the combined benchmark report.
   harness-evals publish --batch id [--config path] [--dry-run] [--validity valid|invalid|superseded] [--validity-note text] [--superseded-by id] [--allow-unfinalized]
   harness-evals publish-status --batch id --validity valid|invalid|superseded [--config path] [--dry-run] [--validity-note text] [--superseded-by id]
+  harness-evals reprocess --source <benchmark>=<batch> [--source ...] [--concurrency n] [--dry-run] [--probe-run id]
 
 View / export:
   view (no --run/--latest) scans every run in the workspace into one
