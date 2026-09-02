@@ -269,13 +269,18 @@ assert:
   - type: toolCalled
     name: functions.read
     min: 1
+    resultContains: [scripts]
   - type: toolCalled
     name: functions.edit
     max: 3
     argsContain: [package.json]
 ```
 
-`name` matches the tool/event name. `argsContain` checks the serialized call args.
+`name` matches the tool/event name. Every `argsContain` or `resultContains`
+string must appear in the JSON-serialized arguments or JSON-serialized retained
+result previews, respectively, across matching calls. Adapters may cap large
+result previews while preserving their beginning and end, so do not rely on
+middle-only content.
 
 Assertions can be conditional on a configured agent. This is useful when a
 comparison intentionally expects different tool behavior from different arms:

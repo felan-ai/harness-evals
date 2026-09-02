@@ -98,19 +98,24 @@ const TOOL_RESULT_PREVIEW_CHARS = 4096;
 // (and serializing them into events-summary/result artifacts) balloons memory.
 function capToolResult(result: unknown): unknown {
   if (typeof result === 'string') {
-    return result.length > TOOL_RESULT_PREVIEW_CHARS ? `${result.slice(0, TOOL_RESULT_PREVIEW_CHARS)}… [truncated]` : result;
+    return capSerializedToolResult(result);
   }
   if (result && typeof result === 'object') {
     try {
       const serialized = JSON.stringify(result);
-      if (serialized && serialized.length > TOOL_RESULT_PREVIEW_CHARS) {
-        return `${serialized.slice(0, TOOL_RESULT_PREVIEW_CHARS)}… [truncated]`;
-      }
+      if (serialized && serialized.length > TOOL_RESULT_PREVIEW_CHARS) return capSerializedToolResult(serialized);
     } catch {
       return '[unserializable tool result]';
     }
   }
   return result;
+}
+
+function capSerializedToolResult(result: string): string {
+  if (result.length <= TOOL_RESULT_PREVIEW_CHARS) return result;
+  // Keep the established head preview while retaining appended diagnostics and errors.
+  const tailChars = Math.floor(TOOL_RESULT_PREVIEW_CHARS / 2);
+  return `${result.slice(0, TOOL_RESULT_PREVIEW_CHARS)}… [truncated] …${result.slice(-tailChars)}`;
 }
 
 // Assistant message_end events carry per-message usage:

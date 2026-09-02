@@ -99,6 +99,24 @@ function toolCalled(config: AssertionConfig, context: AssertionContext): Asserti
     return assertionResult(config, false, `Tool ${name} args did not contain: ${missing.join(', ')}`, { ...metadata, missing });
   }
 
+  if (config.resultContains !== undefined && (
+    !Array.isArray(config.resultContains)
+    || config.resultContains.some((value) => typeof value !== 'string')
+  )) {
+    return assertionResult(config, false, `Tool ${name} resultContains must be an array of strings`, metadata);
+  }
+  const resultContains = readStringArray(config.resultContains);
+  if (resultContains.length > 0) {
+    const serializedResults = matching
+      .filter((call) => Object.prototype.hasOwnProperty.call(call, 'result'))
+      .map((call) => JSON.stringify(call.result))
+      .join('\n');
+    const missingResults = resultContains.filter((needle) => !serializedResults.includes(needle));
+    if (missingResults.length > 0) {
+      return assertionResult(config, false, `Tool ${name} results did not contain: ${missingResults.join(', ')}`, { ...metadata, missing: missingResults });
+    }
+  }
+
   return assertionResult(config, true, `Tool ${name} was called ${matching.length} time(s)`, metadata);
 }
 

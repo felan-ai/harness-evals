@@ -65,7 +65,7 @@ const ASSERTION_KEYS: Record<string, readonly string[]> = {
   exitCode: assertionKeys('equals'),
   contains: assertionKeys('value'),
   notContains: assertionKeys('value'),
-  toolCalled: assertionKeys('name', 'min', 'max', 'argsContain', 'isError'),
+  toolCalled: assertionKeys('name', 'min', 'max', 'argsContain', 'resultContains', 'isError'),
   mockCalled: assertionKeys('name', 'surface', 'min', 'max', 'argsContain', 'matched'),
   noToolErrors: assertionKeys(),
   workspaceDiff: assertionKeys('changedFiles', 'addedFiles', 'deletedFiles', 'minChanged', 'maxChanged'),
@@ -972,6 +972,11 @@ function readAssertions(value: unknown, field: string): AssertionConfig[] {
     const normalized: AssertionConfig = { ...entry, id, type, required, ...(when ? { when } : {}) };
     if (type === 'toolCalled' && entry.isError !== undefined) {
       (normalized as Record<string, unknown>).isError = readOptionalBoolean(entry.isError, `${itemField}.isError`);
+    }
+    if (type === 'toolCalled' && entry.resultContains !== undefined) {
+      const resultContains = readOptionalStringArray(entry.resultContains, `${itemField}.resultContains`);
+      if (!resultContains) throw new Error(`${itemField}.resultContains must be an array`);
+      (normalized as Record<string, unknown>).resultContains = resultContains;
     }
     if (type === 'llmJudge') {
       const threshold = readOptionalNumber(entry.threshold, `${itemField}.threshold`);

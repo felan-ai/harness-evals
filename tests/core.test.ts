@@ -617,6 +617,43 @@ assert: []
   await expect(loadHarnessConfig({ cwd: mockRoot })).rejects.toThrow('Path escapes project root');
 });
 
+test('toolCalled resultContains accepts only string arrays', async () => {
+  const root = await tempRoot();
+  const casePath = join(root, 'evals', 'tests', 'case.yaml');
+  await mkdir(join(root, 'evals', 'tests'), { recursive: true });
+  await writeFile(join(root, 'harness-evals.yaml'), `
+version: 1
+agents:
+  a:
+    adapter: command
+    command: echo
+tests:
+  - evals/tests/*.yaml
+`);
+
+  const writeCase = (resultContains: string) => writeFile(casePath, `
+id: result-contains
+prompt: hi
+assert:
+  - type: toolCalled
+    name: search
+    resultContains: ${resultContains}
+`);
+
+  await writeCase('[alpha, beta]');
+  const config = await loadHarnessConfig({ cwd: root });
+  expect(config.testCases[0]?.assert[0]?.resultContains).toEqual(['alpha', 'beta']);
+
+  for (const [value, message] of [
+    ['alpha', 'assert[0].resultContains must be an array'],
+    ['[alpha, 2]', 'assert[0].resultContains[1] must be a string'],
+    ['null', 'assert[0].resultContains must be an array'],
+  ]) {
+    await writeCase(value);
+    await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow(message);
+  }
+});
+
 test('unknown config extension keys and assertion types fail during loading', async () => {
   const invalids = [
     {
@@ -1456,7 +1493,7 @@ test('pi adapter streams events from the stdout artifact and caps giant tool res
   // disk and parseEvents must read the file without needing input.stdout.
   const root = await tempRoot();
   const stdoutPath = join(root, 'stdout.log');
-  const giantResult = 'x'.repeat(100_000);
+  const giantResult = `result-head-${'x'.repeat(100_000)}-result-tail`;
   await writeFile(stdoutPath, [
     JSON.stringify({ type: 'tool_execution_start', toolCallId: '1', toolName: 'read', args: { path: 'big.txt' } }),
     JSON.stringify({ type: 'tool_execution_end', toolCallId: '1', toolName: 'read', result: giantResult, isError: false }),
@@ -1478,8 +1515,10 @@ test('pi adapter streams events from the stdout artifact and caps giant tool res
   expect(summary.cost?.totalCost).toBeCloseTo(0.01);
   const result = summary.toolCalls[0]?.result;
   expect(typeof result).toBe('string');
-  expect((result as string).length).toBeLessThan(5000);
-  expect(result as string).toEndWith('… [truncated]');
+  expect((result as string).length).toBeLessThan(7000);
+  expect(result as string).toStartWith(giantResult.slice(0, 4096));
+  expect(result as string).toContain('… [truncated] …');
+  expect(result as string).toEndWith('-result-tail');
 });
 
 test('redactFile redacts secret values in a streamed artifact in place', async () => {
@@ -1608,6 +1647,72 @@ test('built-in assertions evaluate tool calls and workspace diff', async () => {
   });
 
   expect(results.every((result) => result.pass)).toBe(true);
+});
+
+test('toolCalled resultContains checks serialized results from matching calls', async () => {
+  const results = await runAssertions([
+    { type: 'toolCalled', name: 'search', resultContains: ['alpha', 'beta'] },
+    { type: 'toolCalled', name: 'search', resultContains: ['missing', 'outside'] },
+    { type: 'toolCalled', name: 'search', resultContains: [42] },
+    { type: 'toolCalled', name: 'search', resultContains: 'alpha' },
+  ], {
+    output: '',
+    exitCode: 0,
+    events: {
+      finalOutput: '',
+      toolCalls: [
+        { name: 'server__search', result: { value: 'alpha' } },
+        { name: 'search', result: ['beta'] },
+        { name: 'other', result: 'outside' },
+      ],
+      errors: [],
+    },
+    workspace: { added: [], changed: [], deleted: [] },
+    metadata: {},
+  });
+
+  expect(results[0]).toMatchObject({
+    pass: true,
+    reason: 'Tool search was called 2 time(s)',
+    metadata: { name: 'search', min: 1, count: 2 },
+  });
+  expect(results[1]).toMatchObject({
+    pass: false,
+    reason: 'Tool search results did not contain: missing, outside',
+    metadata: { name: 'search', min: 1, count: 2, missing: ['missing', 'outside'] },
+  });
+  for (const result of results.slice(2)) {
+    expect(result).toMatchObject({
+      pass: false,
+      reason: 'Tool search resultContains must be an array of strings',
+      metadata: { name: 'search', min: 1, count: 2 },
+    });
+  }
+});
+
+test('toolCalled resultContains distinguishes absent and explicit null results', async () => {
+  const context = {
+    output: '',
+    exitCode: 0,
+    events: {
+      finalOutput: '',
+      toolCalls: [{ name: 'search' }],
+      errors: [],
+    },
+    workspace: { added: [], changed: [], deleted: [] },
+    metadata: {},
+  };
+
+  const [absent] = await runAssertions([
+    { type: 'toolCalled', name: 'search', resultContains: ['null'] },
+  ], context);
+  expect(absent?.pass).toBe(false);
+
+  context.events.toolCalls[0] = { name: 'search', result: null };
+  const [explicitNull] = await runAssertions([
+    { type: 'toolCalled', name: 'search', resultContains: ['null'] },
+  ], context);
+  expect(explicitNull?.pass).toBe(true);
 });
 
 test('agent-conditional assertions only evaluate for their selected agent', async () => {

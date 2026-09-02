@@ -11,7 +11,7 @@ Built-ins:
 - `exitCode`: passes when the step exit code matches `equals` (defaults to `0`).
 - `contains`: passes when the final step output contains `value`.
 - `notContains`: passes when the final step output does not contain `value`.
-- `toolCalled`: checks tool-call events by `name`, with optional `min`, `max`, `argsContain`, and `isError`.
+- `toolCalled`: checks tool-call events by `name`, with optional `min`, `max`, `argsContain`, `resultContains`, and `isError`.
 - `mockCalled`: checks recorded mock calls by `name`, with optional `surface`, `matched`, `min`, `max`, and `argsContain`.
 - `noToolErrors`: fails if any tool call event was marked as an error.
 - `workspaceDiff`: checks file changes using `changedFiles`, `addedFiles`, `deletedFiles`, `minChanged`, and `maxChanged`.
@@ -35,7 +35,10 @@ means conditional `llmJudge` assertions are not invoked for non-matching
 agents. The condition must reference an agent declared in the project config.
 
 For `toolCalled`, `isError: false` matches calls that were not recorded as
-errors; `isError: true` matches only failed calls.
+errors; `isError: true` matches only failed calls. Every `argsContain` or
+`resultContains` string must appear in the JSON-serialized arguments or
+JSON-serialized retained result previews, respectively, across those matching
+calls. Adapters may cap large previews while preserving their beginning and end.
 
 All assertions are `required: true` by default.
 
