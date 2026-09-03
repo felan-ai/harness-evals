@@ -77,6 +77,27 @@ test('managed image deduplicates identical install recipes across agent profiles
   expect(dockerfile.match(/RUN echo installing probe/g)).toHaveLength(1);
 });
 
+test('managed image cache key ignores which agent profiles selected the recipe', async () => {
+  const root = await tempRoot();
+  restores.push(await installFakeDocker(root));
+  const registry = await createAdapterRegistry({ projectRoot: root, declarations: {}, builtIns: [createProbeAdapter('probe-ok')] });
+  const resolve = (agentNames: string[]) => resolveDockerImage({
+    projectRoot: root,
+    docker: dockerConfig(),
+    selectedAgents: agentNames.map((agentName) => ({ agentName, agent: { adapter: 'probe' } })),
+    adapterRegistry: registry,
+  });
+
+  const both = await resolve(['profile-a', 'profile-b']);
+  const onlySecond = await resolve(['profile-b']);
+
+  expect(onlySecond.cacheKey).toBe(both.cacheKey);
+  expect(both.cacheHit).toBe(false);
+  expect(onlySecond.cacheHit).toBe(true);
+  const commands = await readDockerLog(root);
+  expect(commands.filter((args) => args[0] === 'build')).toHaveLength(1);
+});
+
 test('managed image rejects conflicting Felan install cache keys', async () => {
   const root = await tempRoot();
   const registry = await createAdapterRegistry({ projectRoot: root, declarations: {}, builtIns: [createVersionedFelanAdapter()] });

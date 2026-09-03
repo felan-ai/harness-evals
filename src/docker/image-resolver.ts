@@ -381,7 +381,16 @@ function renderDockerfile(manifest: InstallManifest, cacheKey: string): string {
 }
 
 function computeCacheKey(manifest: InstallManifest): string {
-  return createHash('sha256').update(stableStringify(manifest)).digest('hex').slice(0, 32);
+  // agentName records which profile contributed a recipe, but it never reaches the
+  // rendered Dockerfile: image contents are fully determined by the base image, the
+  // base setup and the install commands. Recipes are already deduplicated ignoring
+  // agentName, so leaving it in the hash gave the same image two keys depending on
+  // which profiles a run selected, forcing a redundant rebuild.
+  const hashable = {
+    ...manifest,
+    recipes: manifest.recipes.map(({ agentName: _agentName, ...recipe }) => recipe),
+  };
+  return createHash('sha256').update(stableStringify(hashable)).digest('hex').slice(0, 32);
 }
 
 function compareSelectedAgents(a: ImageResolutionAgent, b: ImageResolutionAgent): number {
