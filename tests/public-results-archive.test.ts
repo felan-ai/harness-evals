@@ -77,7 +77,7 @@ test('publishes a finalized batch to filesystem and reclassifies catalog without
   const artifactRoot = join(root, '.harness-evals', 'runs');
   const runId = 'case-a-agent-2026-01-01T01-02-03-000Z-0';
   const runDir = join(artifactRoot, runId);
-  const benchmark = { revision: 1, label: 'Cost', select: { suites: ['smoke'] }, arms: { baseline: 'agent', candidate: 'candidate' }, trials: 1, qualityGates: [{ metric: 'quality.passRate', min: 1 }], objective: { metric: 'cost.total', goal: 'minimize' as const }, aggregation: { trials: 'median' as const, cases: 'macroMean' as const }, secondaryMetrics: [] };
+  const benchmark: BenchmarkDefinition = { revision: 1, label: 'Cost', select: { suites: ['smoke'] }, arms: { baseline: 'agent', candidate: 'candidate' }, trials: 1, qualityGates: [{ metric: 'quality.passRate', min: 1 }], objective: [{ metric: 'cost.total', goal: 'minimize' }], aggregation: { trials: 'median', cases: 'macroMean' } };
   await writeFile(join(await mkdirPath(runDir), 'summary.json'), JSON.stringify({ caseId: 'case-a', suite: 'smoke', agentName: 'agent', batchId, benchmark: { id: 'cost', revision: 1, digest: benchmarkDefinitionDigest('cost', benchmark) }, status: 'passed', pass: true, durationMs: 42, metrics: { 'quality.passRate': 1, 'cost.total': 1 } }));
   await writeFile(join(runDir, 'run-started.json'), JSON.stringify({ caseId: 'case-a', agentName: 'agent', batch: { batchId, startedAt: '2026-01-01T01:02:03.000Z', label: '<batch>' } }));
   const batch = { batchId, startedAt: '2026-01-01T01:02:03.000Z', label: '<batch>', agents: ['agent'], caseCount: 1, runCount: 1 };

@@ -117,156 +117,66 @@ visualization:
 
 These switches affect the rendered report content, not the underlying artifacts.
 
-## Aggregate report (default `view`)
-
-`harness-evals view` with no `--run`/`--latest` scans every run directory in
-the workspace and writes one self-contained interactive report to
-`<outputRoot>/report/index.html`, then opens it (suppress with `--no-open`).
-
-How it works:
-
-- Every `harness-evals run` invocation stamps a **batchId** into each run
-  directory it creates (`summary.json.batchId`, plus full metadata under
-  `run-started.json.batch`). The report's "Runs" selector lists batches
-  newest-first; the newest is pre-selected.
-- Selecting several batches merges them, keeping the **newest graded run**
-  per (case, agent, attempt number): a passed/failed/skipped/timeout verdict always beats an
-  error/incomplete run, regardless of recency.
-- Runs from versions before batch stamping are grouped into synthetic
-  `legacy-<date>` batches derived from the run directory timestamp.
-- The scanner reads only `summary.json` and `run-started.json` (never the
-  potentially huge `result.json`). Corrupt or partial run dirs become scan
-  warnings; a dir with only `run-started.json` shows as `incomplete`.
-- All run data is embedded in the HTML, so batch/agent/suite/status filters
-  and a disagreements-only toggle re-aggregate live — the file works offline,
-  from `file://`, and survives being mailed around.
-
-The report shows per-agent KPI cards (solve rate with 95% Wilson interval,
-average time, total and per-task cost, tokens), solve-rate bars (overall and
-per suite), a cost-vs-solve-rate scatter, an agent × task matrix with
-pass/fail dots and in-cell cost/duration micro-bars (click a cell for attempt
-details and a link to the run's own report), duration and cost strip plots,
-and a cached/input/output token composition bar — all hand-rolled inline SVG,
-no external scripts.
-
-`summary.json` now also records `suite` and `description` per run, so suite
-grouping works without re-reading test configs.
-
-## View reports
-
-```bash
-harness-evals view                       # aggregate report, opens browser
-harness-evals view --no-open             # just write + print the path
-harness-evals view --batch all           # pre-select every batch
-harness-evals view --run <run-id>        # one run's index.html (back-compat)
-harness-evals view --latest              # last invocation's results.html
-harness-evals view --port 3000           # serve /report, /runs, /latest
-```
-
-Behavior:
-
-- default: regenerate `<outputRoot>/report/index.html` from a workspace scan
-  and open it; `--batch`, `--agents`, `--suite`, `--status` pre-set the
-  report's filters (all data stays embedded)
-- with `--run`, it targets `<artifactRoot>/<run-id>/index.html`
-- with `--latest`, it targets `<outputRoot>/latest/results.html`
-- with `--port`, it serves `/report/...`, `/latest/...` and `/runs/...` over a
-  local HTTP server (run links in the aggregate report resolve automatically)
-
-If an expected HTML file is missing, `view` fails with `Report not found: ...`.
-
 ## Export reports
 
+Use declared benchmarks or stored run summaries for portable report files:
+
 ```bash
-harness-evals export --format csv --output report.csv                    # newest batch
-harness-evals export --batch all --format json --output everything.json  # whole workspace
-harness-evals export --batch b1,b2 --agents claude,pi --format html --output cmp.html
-harness-evals export --latest --format json --output report.json         # copy last summary
-harness-evals export --run <run-id> --format csv --output report.csv     # single run
+harness-evals export --benchmark <id> --format html --output report.html
+harness-evals export --benchmark <id> --format json --output report.json
+harness-evals export --benchmark <id> --format csv --output report.csv
+harness-evals export --latest --format json --output latest.json
+harness-evals export --run <run-id> --format csv --output run.csv
 ```
 
-Behavior:
-
-- default exports the **aggregate**: scans the workspace, applies `--batch`
-  (default `latest`; `all` or a comma list also allowed), `--agents`,
-  `--suite`, `--case`, `--status` server-side; merging several batches
-  dedupes to the newest graded run per (case, agent, attempt number). Distinct
-  attempts remain separate. `html` stays
-  interactive; `csv` is one row per task run (batch, suite, models, status,
-  duration, cost, token split); `json` is the embedded data model.
-- `--latest` copies `<outputRoot>/latest/results.<format>` verbatim
-- `--run` reads `<artifactRoot>/<run-id>/result.json` and renders on demand
-
-Generic aggregate, latest, and run exports require:
-
-- `--format html|json|csv`
-- `--output <path>`
-- visualization enabled for the requested format
-
-Benchmark exports (`export --benchmark <id>`) render directly and do not apply
-the visualization enabled/format check. Benchmark reports still evaluate and
-display quality-gate state; a failed gate does not prevent report generation.
-
-If a format is not enabled, the CLI fails with `Visualization format is not enabled: ...`.
+Benchmark exports use the selected retained batch (newest relevant batch by
+ default) and preserve benchmark objectives, trial observations, and quality
+ gates. `--latest` copies the latest pre-rendered summary, while `--run` renders
+ a single retained run. Bare `export` is rejected; it cannot generate a
+ workspace-wide report. Parent directories are created automatically.
 
 ## What the HTML reports are for
 
-The built-in HTML reports are triage views. The per-run/latest report and the
-workspace aggregate dashboard are separate surfaces.
+The per-run/latest and benchmark HTML reports are focused comparison and
+triage views. They can include steps, failed assertions, tool calls, mock
+calls, judge results, verifier results, workspace diffs, and portable artifact
+links when enabled.
 
 The per-run/latest report:
 
 - groups results by test case
 - shows one column for each agent/provider/model configuration
 - shows status, score, human-readable agent time, requests, tokens, cost,
-  assertions, result, and actions as metric rows within each test case
-- formats display values for humans (for example `6m 35s`, `1,753,194`, and
-  `$0.84938`); `results.json` and `results.csv` retain exact machine-readable
-  values
-- opens diagnostics with **View details**. Details appear in a scrollable
-  modal with a visible **X** close button, backdrop close, and Escape-key close.
-  Focus returns to the button that opened the modal.
-- keeps run-artifact and log links portable when the report is opened as a
-  file, served by `harness-evals view --port`, or exported to another folder
-
-The workspace aggregate dashboard shows:
-
-- one column per agent/provider/model combination
-- one row per test case
-- status, score, duration, cost, tokens, and assertion summary per matrix cell
-- inline aggregate comparisons and historical run links
-
-Both surfaces can include steps, failed assertions, tool calls, mock calls,
-judge results, verifier results, workspace diffs, and log links when enabled.
-The per-run/latest surface uses one metric matrix per test case and puts
-diagnostics in the modal; the aggregate dashboard keeps its cross-case matrix.
-
-Use the raw JSON artifacts when you need machine-readable detail; use HTML or CSV for comparison and review.
+  assertions, result, and actions as metric rows
+- opens diagnostics in a scrollable modal and preserves portable artifact links
 
 ## Benchmark reports
 
-Benchmark reports are separate from the generic aggregate explorer. They show
-the declared objective, matrix completeness, quality gates, every trial
-observation, per-case reductions, absolute values, and baseline deltas. A
+Benchmark reports show the declared primary and optional secondary objectives, matrix completeness,
+quality gates, every trial observation, per-case reductions, absolute values,
+and baseline deltas. A
 candidate is not eligible when required quality regresses or observations are
 missing.
 
 Each benchmark has exactly two arms. The combined report renders one row per
-benchmark: a bar for the mean **raw percentage change** (`candidate - baseline`)
-and a whisker spanning the minimum and maximum case changes. A decrease is
-shown with a minus sign and an increase with a plus sign. The report separately
-labels the change as favorable or unfavorable using the declared objective goal
-(`minimize` or `maximize`); quality-regressed comparisons are marked as not
-credited rather than celebrated as improvements.
+benchmark: a bar for the mean goal-aware outcome across cases and a whisker
+spanning the minimum and maximum outcomes, without a redundant range column.
+The primary percentage is positive when the candidate moves in the declared
+direction, including when a minimized metric decreases. An optional secondary
+objective is described from its raw direction, such as `40.5% fewer prompt
+tokens`, and colored according to its own goal. HTML shows only these
+goal-aware outcomes, while raw percentage change remains available in JSON and
+CSV. The metrics matrix separately shows each absolute candidate-minus-baseline
+delta. Quality-regressed comparisons are marked as not credited rather than
+celebrated as improvements.
 
-JSON stores case and aggregate values under `comparison`; CSV exposes the same
-explicit `changePercent` and `improvementPercent` fields. The aggregate
-equivalents are
-`averageChangePercent`/`minChangePercent`/`maxChangePercent` and
-`averageImprovementPercent`/`minImprovementPercent`/`maxImprovementPercent`.
-Secondary metrics are reported as absolute values and observations; because
-they do not have per-metric goals, the report does not label their movement as
-favorable or unfavorable.
+JSON stores the primary comparison under `comparison` and all ordered objective
+comparisons under `objectiveComparisons`; each includes `metric`, `role`,
+`goal`, `changePercent`, and positive `gainPercent` fields. CSV exposes the
+same fields plus `objectiveRole` and `objectiveGoal`. Every metric found in
+the retained run summaries is included in an aggregate matrix with metrics as
+rows and benchmark arms as columns, including duration, prompt/output/cache
+tokens, requests, quality, cost, and custom numeric metrics.
 
 Numeric observations are persisted in `summary.json.metrics`. Small,
 explicitly marked `benchmark-metrics.json` sidecars can supply derived metrics
@@ -277,7 +187,10 @@ page and each benchmark's HTML/JSON/CSV files.
 Benchmark reports use only runs stamped with the current benchmark ID and
 definition digest. Runs from an older definition, unstamped legacy runs, and
 duplicate or out-of-range trial numbers are excluded or reported incomplete;
-rerun the benchmark after changing its selectors, objective, gates, trials, or
-reducers. A quality-gate warning is shown separately from the numeric change,
-so the raw movement remains visible for diagnosis even when result quality is
-invalid; invalid movement is not labeled as a favorable improvement.
+rerun the benchmark after changing its selectors, objectives, gates, trials, or
+reducers. To migrate retained runs to a changed definition without executing
+agents, use `harness-evals reprocess --source <benchmark>=<completed-batch>`;
+then regenerate with `harness-evals view --benchmark <id>` or
+`harness-evals export --benchmark <id>`. Reprocessing is offline and writes
+derived, non-publishable runs; provider-backed judges, networked verifiers,
+hidden patches, and incomplete source batches are not supported.

@@ -56,9 +56,8 @@ function cloneBenchmarks(benchmarks: Record<string, BenchmarkDefinition>): Recor
     },
     arms: { baseline: benchmark.arms.baseline, candidate: benchmark.arms.candidate },
     qualityGates: benchmark.qualityGates.map((gate) => ({ ...gate })),
-    objective: { ...benchmark.objective },
+    objective: benchmark.objective.map((objective) => ({ ...objective })) as BenchmarkDefinition['objective'],
     aggregation: { ...benchmark.aggregation },
-    secondaryMetrics: [...benchmark.secondaryMetrics],
   }]));
 }
 

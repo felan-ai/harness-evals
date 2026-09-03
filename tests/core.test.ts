@@ -8,7 +8,7 @@ import { buildDockerArgs } from '../src/docker/args.js';
 import { buildContainerName } from '../src/docker/runner.js';
 import { piAdapter } from '../src/adapters/pi.js';
 import { felanAdapter } from '../src/adapters/felan.js';
-import { parsePiJsonlEvents } from '../src/adapters/pi-jsonl.js';
+import { parsePiJsonlEvents, parsePiJsonlEventsWithContext } from '../src/adapters/pi-jsonl.js';
 import { claudeCodeAdapter } from '../src/adapters/claude-code.js';
 import { codexAdapter } from '../src/adapters/codex.js';
 import { redactFile, redactionsFromValues, redactString } from '../src/redaction.js';
@@ -163,8 +163,10 @@ benchmarks:
       - metric: quality.passRate
         min: 1
     objective:
-      metric: cost.total
-      goal: minimize
+      - metric: cost.total
+        goal: minimize
+      - metric: usage.promptTokens
+        goal: minimize
 `);
   await writeFile(join(root, 'cases', 'case.yaml'), 'id: one\nsuite: pilot\nprompt: hi\nassert: []\n');
 
@@ -172,6 +174,10 @@ benchmarks:
   const selection = resolveBenchmarkSelection(config, 'simple');
   const matrix = buildMatrix(config, { benchmarkId: 'simple' });
   expect(selection.agentNames).toEqual(['baseline', 'candidate']);
+  expect(selection.definition.objective).toEqual([
+    { metric: 'cost.total', goal: 'minimize' },
+    { metric: 'usage.promptTokens', goal: 'minimize' },
+  ]);
   expect(selection.testCases.map((testCase) => testCase.id)).toEqual(['one']);
   expect(matrix).toHaveLength(6);
   expect(matrix.every((entry) => entry.attempts === 3 && entry.benchmark?.id === 'simple')).toBe(true);
@@ -189,9 +195,22 @@ benchmarks:
     label: Invalid comparison
     select: { cases: [one] }
     arms: { baseline: base, candidates: [one, two] }
-    objective: { metric: cost.total, goal: minimize }
+    objective: [{ metric: cost.total, goal: minimize }]
 `);
   await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow('Unknown benchmarks.invalid.arms key: candidates');
+});
+
+test('benchmark objective arrays reject duplicate and excess objectives', async () => {
+  const root = await tempRoot();
+  await mkdir(join(root, 'cases'));
+  await writeFile(join(root, 'cases', 'case.yaml'), 'id: one\nprompt: hi\nassert: []\n');
+  const config = (objective: string) => `version: 1\nagents:\n  base: { adapter: command, command: echo }\n  candidate: { adapter: command, command: echo }\ntests: [cases/*.yaml]\nbenchmarks:\n  invalid:\n    label: Invalid\n    select: { cases: [one] }\n    arms: { baseline: base, candidate: candidate }\n    objective:\n      ${objective}\n`;
+  await writeFile(join(root, 'harness-evals.yaml'), config('[]'));
+  await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow('must contain one primary objective');
+  await writeFile(join(root, 'harness-evals.yaml'), config('- { metric: cost.total, goal: minimize }\n      - { metric: cost.total, goal: minimize }'));
+  await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow('metrics must be unique');
+  await writeFile(join(root, 'harness-evals.yaml'), config('- { metric: cost.total, goal: minimize }\n      - { metric: usage.promptTokens, goal: minimize }\n      - { metric: usage.outputTokens, goal: minimize }'));
+  await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow('must contain one primary objective');
 });
 
 test('workspace setup commands load and case commands replace project defaults', async () => {
@@ -1032,7 +1051,7 @@ assert: []
   expect(new TextDecoder().decode(listed.stdout)).toContain('Runtime image: managed (will refresh before run)');
 });
 
-test('CLI export honors enabled visualization formats', async () => {
+test('CLI export requires a target and honors enabled visualization formats', async () => {
   const root = await tempRoot();
   const cliPath = join(import.meta.dir, '..', 'src', 'cli.ts');
   const outputRoot = join(root, '.harness-evals', 'output', 'latest');
@@ -1045,15 +1064,14 @@ visualization:
 `);
   await writeFile(join(outputRoot, 'results.json'), '{"status":"passed"}\n');
 
-  // --latest preserves the copy-the-prerendered-summary behavior (the default
-  // export is now the workspace aggregate).
+  // --latest preserves the copy-the-prerendered-summary behavior.
   const jsonExport = Bun.spawnSync(['bun', cliPath, 'export', '--latest', '--config', join(root, 'harness-evals.yaml'), '--format', 'json', '--output', exported], { cwd: root });
   expect(jsonExport.exitCode).toBe(0);
   expect(await readFile(exported, 'utf8')).toBe('{"status":"passed"}\n');
 
   const csvExport = Bun.spawnSync(['bun', cliPath, 'export', '--config', join(root, 'harness-evals.yaml'), '--format', 'csv', '--output', join(root, 'exported.csv')], { cwd: root });
   expect(csvExport.exitCode).toBe(1);
-  expect(new TextDecoder().decode(csvExport.stderr)).toContain('Visualization format is not enabled: csv');
+  expect(new TextDecoder().decode(csvExport.stderr)).toContain('requires --benchmark <id>, --run <id>, or --latest');
 });
 
 test('CLI latest HTML export relocates artifact links', async () => {
@@ -1384,6 +1402,19 @@ test('pi adapter parses JSONL events into tool calls and output', async () => {
   expect(summary.toolCalls).toEqual([{ name: 'todo_write', args: { content: 'Run smoke eval' }, result: { ok: true }, isError: false }]);
 });
 
+test('Pi JSONL parsing exposes the root session only as adapter context', async () => {
+  const parsed = await parsePiJsonlEventsWithContext({
+    stdout: [
+      JSON.stringify({ type: 'session', version: 3, id: 'root-session' }),
+      JSON.stringify({ type: 'agent_end', messages: [{ role: 'assistant', content: [{ type: 'text', text: 'OK' }] }] }),
+    ].join('\n'),
+  });
+
+  expect(parsed.sessionId).toBe('root-session');
+  expect(parsed.summary.finalOutput).toBe('OK');
+  expect(parsed.summary).not.toHaveProperty('sessionId');
+});
+
 test('felan uses the shared Pi-compatible JSONL parser', async () => {
   const stdout = [
     JSON.stringify({ type: 'tool_execution_start', toolCallId: '1', toolName: 'write', args: { path: 'fixture.txt' } }),
@@ -1405,6 +1436,109 @@ test('felan uses the shared Pi-compatible JSONL parser', async () => {
   expect(actual).toEqual(expected);
   expect(actual.finalOutput).toBe('updated');
   expect(actual.cost?.totalCost).toBeCloseTo(0.001);
+});
+
+test('felan includes usage from run-local child sessions exactly once', async () => {
+  const root = await tempRoot();
+  const rootSessionId = 'root-session';
+  const subagentsDir = join(root, 'felan', 'subagents', encodeURIComponent(rootSessionId));
+  const sessionsDir = join(subagentsDir, 'sessions');
+  await mkdir(sessionsDir, { recursive: true });
+  const assistant = (cost: number, input: number, output: number) => ({
+    role: 'assistant',
+    provider: 'openai',
+    model: 'gpt-5',
+    content: [{ type: 'text', text: 'done' }],
+    usage: { input, output, cacheRead: 0, cacheWrite: 0, totalTokens: input + output, cost: { total: cost } },
+  });
+  await writeFile(join(subagentsDir, 'records.json'), JSON.stringify({
+    version: 1,
+    children: [
+      {
+        record: { agentId: 'child-session', parentSessionId: rootSessionId, rootSessionId },
+        sessionFile: '/agent-config/felan/subagents/root-session/sessions/2026-01-01T00-00-00-000Z_child-session.jsonl',
+      },
+      {
+        record: { agentId: 'nested-session', parentSessionId: 'child-session', rootSessionId },
+        sessionFile: '/agent-config/felan/subagents/root-session/sessions/2026-01-01T00-00-01-000Z_nested-session.jsonl',
+      },
+      {
+        record: { agentId: 'misnamed-session', parentSessionId: rootSessionId, rootSessionId },
+        sessionFile: '/agent-config/felan/subagents/root-session/sessions/2026-01-01T00-00-04-000Z_different-session.jsonl',
+      },
+      {
+        record: { agentId: 'rebound-session', parentSessionId: rootSessionId, rootSessionId },
+        sessionFile: '/elsewhere/2026-01-01T00-00-05-000Z_rebound-session.jsonl',
+      },
+      {
+        record: { agentId: 'duplicate-session', parentSessionId: rootSessionId, rootSessionId },
+        sessionFile: '/agent-config/felan/subagents/root-session/sessions/2026-01-01T00-00-06-000Z_duplicate-session.jsonl',
+      },
+      {
+        record: { agentId: 'duplicate-session', parentSessionId: rootSessionId, rootSessionId },
+        sessionFile: '/agent-config/felan/subagents/root-session/sessions/2026-01-01T00-00-07-000Z_duplicate-session.jsonl',
+      },
+    ],
+  }));
+  await writeFile(join(sessionsDir, '2026-01-01T00-00-00-000Z_child-session.jsonl'), [
+    JSON.stringify({ type: 'session', version: 3, id: 'child-session' }),
+    JSON.stringify({ type: 'message', message: assistant(0.2, 20, 10) }),
+    JSON.stringify({ type: 'message', message: assistant(0.25, 25, 12) }),
+  ].join('\n'));
+  await writeFile(join(sessionsDir, '2026-01-01T00-00-01-000Z_nested-session.jsonl'), [
+    JSON.stringify({ type: 'session', version: 3, id: 'nested-session' }),
+    JSON.stringify({ type: 'message', message: assistant(0.3, 30, 15) }),
+    JSON.stringify({ type: 'message', message: assistant(0.35, 35, 17) }),
+  ].join('\n'));
+  await writeFile(join(sessionsDir, '2026-01-01T00-00-02-000Z_root-session.jsonl'), [
+    JSON.stringify({ type: 'session', version: 3, id: rootSessionId }),
+    JSON.stringify({ type: 'message', message: assistant(9, 900, 900) }),
+  ].join('\n'));
+  await writeFile(join(sessionsDir, '2026-01-01T00-00-03-000Z_stale-session.jsonl'), [
+    JSON.stringify({ type: 'session', version: 3, id: 'stale-session' }),
+    JSON.stringify({ type: 'message', message: assistant(9, 900, 900) }),
+  ].join('\n'));
+  await writeFile(join(sessionsDir, '2026-01-01T00-00-04-000Z_different-session.jsonl'), [
+    JSON.stringify({ type: 'session', version: 3, id: 'misnamed-session' }),
+    JSON.stringify({ type: 'message', message: assistant(9, 900, 900) }),
+  ].join('\n'));
+  await writeFile(join(sessionsDir, '2026-01-02T00-00-00-000Z_child-session.jsonl'), [
+    JSON.stringify({ type: 'session', version: 3, id: 'child-session' }),
+    JSON.stringify({ type: 'message', message: assistant(9, 900, 900) }),
+  ].join('\n'));
+  await writeFile(join(sessionsDir, '2026-01-01T00-00-05-000Z_rebound-session.jsonl'), [
+    JSON.stringify({ type: 'session', version: 3, id: 'rebound-session' }),
+    JSON.stringify({ type: 'message', message: assistant(9, 900, 900) }),
+  ].join('\n'));
+  for (const timestamp of ['2026-01-01T00-00-06-000Z', '2026-01-01T00-00-07-000Z']) {
+    await writeFile(join(sessionsDir, `${timestamp}_duplicate-session.jsonl`), [
+      JSON.stringify({ type: 'session', version: 3, id: 'duplicate-session' }),
+      JSON.stringify({ type: 'message', message: assistant(9, 900, 900) }),
+    ].join('\n'));
+  }
+  await mkdir(join(root, 'felan', 'subagents', 'unrelated-root', 'sessions'), { recursive: true });
+  await writeFile(join(root, 'felan', 'subagents', 'unrelated-root', 'sessions', 'unrelated.jsonl'), [
+    JSON.stringify({ type: 'session', version: 3, id: 'unrelated' }),
+    JSON.stringify({ type: 'message', message: assistant(9, 900, 900) }),
+  ].join('\n'));
+  const stdout = [
+    JSON.stringify({ type: 'session', version: 3, id: rootSessionId }),
+    JSON.stringify({ type: 'message_end', message: assistant(0.1, 10, 5) }),
+  ].join('\n');
+
+  const summary = await felanAdapter.parseEvents({
+    stdout,
+    stderr: '',
+    configDir: root,
+    plan: { argv: ['felan', '--mode', 'json'], cwd: '/workspace', envNames: [], configMounts: [], parser: 'pi-jsonl' },
+  });
+
+  expect(summary.cost?.totalCost).toBeCloseTo(1.2);
+  expect(summary.cost?.usage).toHaveLength(3);
+  expect(summary.cost?.usage?.reduce((sum, usage) => sum + (usage.requests ?? 0), 0)).toBe(5);
+  expect(summary.cost?.usage?.reduce((sum, usage) => sum + (usage.promptTokens ?? 0), 0)).toBe(120);
+  expect(summary.cost?.usage?.reduce((sum, usage) => sum + (usage.outputTokens ?? 0), 0)).toBe(59);
+  expect(summary.cost?.metadata).toMatchObject({ felanChildSessionCount: 2 });
 });
 
 test('pi adapter accumulates usage and cost from assistant message_end events', async () => {
@@ -1449,6 +1583,28 @@ test('pi adapter accumulates usage and cost from assistant message_end events', 
       totalCost: expect.closeTo(0.08),
       currency: 'USD',
     }),
+  ]);
+});
+
+test('pi adapter keeps ambiguous provider and model names in separate usage buckets', async () => {
+  const assistantMessage = (provider: string, model: string) => ({
+    role: 'assistant',
+    content: [{ type: 'text', text: 'done' }],
+    provider,
+    model,
+    usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { total: 0.1 } },
+  });
+  const summary = await piAdapter.parseEvents({
+    stdout: [
+      JSON.stringify({ type: 'message_end', message: assistantMessage('ab', 'c') }),
+      JSON.stringify({ type: 'message_end', message: assistantMessage('a', 'bc') }),
+    ].join('\n'),
+    stderr: '',
+  });
+
+  expect(summary.cost?.usage).toEqual([
+    expect.objectContaining({ provider: 'ab', model: 'c', requests: 1 }),
+    expect.objectContaining({ provider: 'a', model: 'bc', requests: 1 }),
   ]);
 });
 

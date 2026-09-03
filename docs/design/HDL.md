@@ -151,7 +151,7 @@ For each test-case/agent entry, the runner creates an output context, seeds one 
 1. Output providers persist normalized run records and file artifacts.
 2. The visualization layer builds a derived report model from run records.
 3. The file visualization writes `results.html`, `results.json`, and `results.csv` under `.harness-evals/output/latest/`.
-4. `harness-evals view` opens or serves the latest or selected historical report.
+4. Plain `harness-evals view` regenerates and opens the benchmark landing page under `.harness-evals/output/benchmarks/`; `--latest` and `--run` open stored reports.
 
 ## 6. Per-Concern Sections
 
@@ -235,7 +235,7 @@ The file output provider also writes the latest machine-readable summary under `
 
 The visualization layer derives human-readable reports from normalized output records and file artifacts. The default file visualization writes `.harness-evals/output/latest/results.html`, `.harness-evals/output/latest/results.json`, and `.harness-evals/output/latest/results.csv`. Reports compare agents and models side-by-side by test case and include pass/fail status, assertion failures, scores, cost, token usage, duration, tool calls, mock calls, judge results, and workspace diffs when available.
 
-Visualization is a read model, not the source of truth. Output records and provider artifacts remain authoritative. `harness-evals view` opens or serves the latest or selected historical report.
+Visualization is a read model, not the source of truth. Output records and provider artifacts remain authoritative. Plain `harness-evals view` regenerates the benchmark landing page and its HTML/JSON/CSV detail artifacts under `.harness-evals/output/benchmarks/`; `--latest` and `--run` open or serve stored reports, while benchmark, latest, and per-run exports require an explicit target.
 
 ## Related LLDs
 

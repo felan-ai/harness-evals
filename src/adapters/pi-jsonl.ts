@@ -6,15 +6,58 @@ interface MutableToolCall extends ToolCallSummary {
   id?: string;
 }
 
+export interface PiJsonlParseResult {
+  summary: AgentEventsSummary;
+  sessionId?: string;
+}
+
+export interface PiJsonlSessionCostResult {
+  sessionId: string;
+  cost: CostReport;
+}
+
+export function parsePiJsonlSessionCost(input: string): PiJsonlSessionCostResult | undefined {
+  const usageByModel = new Map<string, UsageReport>();
+  let sessionId: string | undefined;
+  let costSeen = false;
+  for (const rawLine of input.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    let entry: unknown;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isRecord(entry)) continue;
+    if (sessionId === undefined) {
+      if (entry.type !== 'session' || typeof entry.id !== 'string') return undefined;
+      sessionId = entry.id;
+      continue;
+    }
+    if (entry.type !== 'message' || !isRecord(entry.message) || entry.message.role !== 'assistant') continue;
+    if (accumulateMessageUsage(entry.message, usageByModel)) costSeen = true;
+  }
+  const cost = piCostReport(usageByModel, costSeen);
+  return sessionId && cost ? { sessionId, cost } : undefined;
+}
+
 export async function parsePiJsonlEvents(
   input: Pick<AgentEventInput, 'stdout' | 'stdoutPath'>,
 ): Promise<AgentEventsSummary> {
+  return (await parsePiJsonlEventsWithContext(input)).summary;
+}
+
+export async function parsePiJsonlEventsWithContext(
+  input: Pick<AgentEventInput, 'stdout' | 'stdoutPath'>,
+): Promise<PiJsonlParseResult> {
   const errors: string[] = [];
   const toolCalls: MutableToolCall[] = [];
   const toolCallsById = new Map<string, MutableToolCall>();
   const usageByModel = new Map<string, UsageReport>();
   let costSeen = false;
   let finalOutput = '';
+  let sessionId: string | undefined;
   let index = 0;
   let parseErrors = 0;
 
@@ -34,6 +77,10 @@ export async function parsePiJsonlEvents(
     }
 
     const type = event.type;
+    if (type === 'session' && sessionId === undefined && typeof event.id === 'string') {
+      sessionId = event.id;
+      continue;
+    }
     if (type === 'tool_execution_start') {
       const id = typeof event.toolCallId === 'string' ? event.toolCallId : undefined;
       const name = typeof event.toolName === 'string' ? event.toolName : 'unknown';
@@ -84,10 +131,13 @@ export async function parsePiJsonlEvents(
   }
 
   return {
-    finalOutput,
-    toolCalls: toolCalls.map(({ id: _id, ...call }) => call),
-    errors,
-    cost: piCostReport(usageByModel, costSeen),
+    summary: {
+      finalOutput,
+      toolCalls: toolCalls.map(({ id: _id, ...call }) => call),
+      errors,
+      cost: piCostReport(usageByModel, costSeen),
+    },
+    ...(sessionId === undefined ? {} : { sessionId }),
   };
 }
 
@@ -125,7 +175,7 @@ function accumulateMessageUsage(message: Record<string, unknown>, usageByModel: 
   if (!usage) return false;
   const provider = typeof message.provider === 'string' ? message.provider : 'pi';
   const model = typeof message.model === 'string' ? message.model : 'unknown';
-  const key = `${provider}${model}`;
+  const key = JSON.stringify([provider, model]);
   const entry = usageByModel.get(key) ?? { provider, model, requests: 0 };
   const inputTokens = numberOrZero(usage.input);
   const cacheReadInputTokens = numberOrZero(usage.cacheRead);

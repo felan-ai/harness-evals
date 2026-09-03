@@ -10,7 +10,7 @@ This LLD defines adapter-reported usage/cost totals and the cost-related output 
 
 ## 1. Domain Overview
 
-Adapters report usage and cost for each step. Coding agents usually expose session totals themselves; the harness records those totals instead of accepting user-maintained cost tables. The framework normalizes adapter reports, rolls them up by step, test case, runtime scenario, agent, provider, model, and total run, then emits cost output records to the output dispatcher.
+Adapters report usage and cost for each step. Coding agents usually expose session totals themselves; the harness records those totals instead of accepting user-maintained cost tables. The framework normalizes adapter reports, rolls them up by step, test case, runtime scenario, agent, provider, model, and total run, then emits cost output records to the output dispatcher. The Felan adapter additionally discovers the completed child-session files created under the current run's copied `FELAN_AGENT_DIR` and merges their usage into the parent step total.
 
 This LLD does not define where output is stored. The built-in file output provider stores cost output on the filesystem; other providers can store the same records in a database or another durable target.
 
@@ -63,6 +63,8 @@ interface CostSummary {
 Cost report rules:
 
 - The framework does not compute cost from token counts.
+- Adapter-specific extraction owns nested-session discovery. Felan's JSON-mode adapter includes the root session plus direct and nested child sessions belonging to the same root session, exactly once.
+- Felan ignores child-session artifacts that are unavailable, malformed, outside the run-owned root, or exceed parser limits; missing child artifacts preserve the root-only behavior.
 - When a coding agent reports only cumulative session totals, the adapter records those totals for the current step and the framework uses the latest cumulative total as the test-case scenario total.
 
 ### Event summary integration
@@ -100,7 +102,7 @@ adapter events
 
 Rules:
 
-1. Adapters report usage and cost totals; the framework owns normalization and rollup only.
+1. Adapters report usage and cost totals; the framework owns normalization and rollup only. Felan child-session discovery is an adapter concern, not a generic runner scan.
 2. Missing token counts do not fail a step; they remain absent in the cost report.
 3. Missing cost totals do not fail a step; `totalCost` remains absent.
 4. Cost summaries group by provider, model, step, test case, agent, runtime scenario, and total run when those dimensions are available.
@@ -134,6 +136,7 @@ Rules:
 ## 6. Trade-Offs Accepted
 
 - Usage and cost extraction belong to adapters because event formats and agent accounting differ by CLI/provider.
+- Felan's child sessions are counted from run-local persisted artifacts because nested usage is not guaranteed to appear in the parent stdout event stream.
 - Coding agents and adapters are responsible for reporting totals.
 - Missing cost data is represented explicitly instead of failing otherwise valid evaluations.
 - Provider/model rollups are retained because per-model comparison is a primary reporting dimension.

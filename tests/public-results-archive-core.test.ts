@@ -187,14 +187,12 @@ test('legacy manifests use agentName when comparisonId is absent', () => {
 function fakeRun(overrides: Partial<ScannedTaskRun> = {}): ScannedTaskRun {
   return {
     runId: 'run',
-    runDir: '/tmp/private-run',
     batchId: '20260101-010203-abcd',
     batchSynthetic: false,
     caseId: 'case',
     agentName: 'agent',
     status: 'passed',
     pass: true,
-    hasIndexHtml: true,
     ...overrides,
   };
 }

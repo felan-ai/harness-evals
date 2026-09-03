@@ -6,7 +6,7 @@ import type {
   TestCaseReportRow,
   VisualizationFormat,
 } from './types.js';
-import { THEME_TOKENS } from './aggregate/styles.js';
+import { THEME_TOKENS } from './theme.js';
 
 export interface RenderReportOptions {
   reportPath?: string;

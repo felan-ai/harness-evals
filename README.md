@@ -34,7 +34,7 @@ After your agent creates `harness-evals.yaml` and the first goal-specific cases,
 ```bash
 harness-evals list
 harness-evals run --case <case-id> --agents <agent-name>
-harness-evals view --open
+harness-evals view --latest --open
 ```
 
 For controlled comparisons, declare a root-level `benchmarks` entry, then run
@@ -47,7 +47,7 @@ harness-evals view --benchmark <id>
 harness-evals view --benchmark all
 ```
 
-Benchmark objectives and quality gates are independent from the weighted
+Benchmark objectives (one primary plus an optional secondary) and quality gates are independent from the weighted
 `scoring` summary. Reports preserve every trial, reduce trials within each
 case, and compare candidate values with the declared baseline.
 

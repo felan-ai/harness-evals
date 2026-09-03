@@ -1,11 +1,10 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { existsSync } from 'node:fs';
 import type { BenchmarkRunMetadata } from '../config/schema.js';
 
 /**
  * Workspace run scanner: enumerates task-run directories under the artifact
- * root and produces compact records for aggregate reporting. Reads compact
+ * root and produces compact records for benchmark and public reporting. Reads compact
  * summary.json, run-started.json, and optional benchmark-metrics.json files —
  * never legacy result.json files, which can be hundreds of megabytes.
  */
@@ -20,7 +19,6 @@ export interface ScannedFailureSummary {
 
 export interface ScannedTaskRun {
   runId: string;
-  runDir: string;
   batchId: string;
   batchSynthetic: boolean;
   caseId: string;
@@ -67,7 +65,6 @@ export interface ScannedTaskRun {
   failures?: ScannedFailureSummary;
   metrics?: Record<string, number>;
   metricsSource?: string;
-  hasIndexHtml: boolean;
 }
 
 export interface BatchSummaryInfo {
@@ -156,31 +153,6 @@ export function filterTaskRuns(runs: readonly ScannedTaskRun[], filters: TaskRun
     && (!statuses || statuses.has(run.status)));
 }
 
-/**
- * Keep one task-run per (caseId, agentName, attemptNumber): any graded verdict
- * (passed/failed/skipped/timeout) beats any error/incomplete regardless of
- * recency — a crashed re-run must not displace a real result — otherwise the
- * newest wins.
- */
-export function dedupeNewestValid(runs: readonly ScannedTaskRun[]): ScannedTaskRun[] {
-  const byKey = new Map<string, ScannedTaskRun>();
-  for (const run of runs) {
-    const key = `${run.caseId}|${run.agentName}|${run.attemptNumber ?? 0}`;
-    const existing = byKey.get(key);
-    byKey.set(key, existing ? preferredRun(existing, run) : run);
-  }
-  return [...byKey.values()];
-}
-
-const GRADED_STATUSES = new Set<ScannedRunStatus>(['passed', 'failed', 'invalid', 'skipped', 'timeout']);
-
-function preferredRun(a: ScannedTaskRun, b: ScannedTaskRun): ScannedTaskRun {
-  const aGraded = GRADED_STATUSES.has(a.status);
-  const bGraded = GRADED_STATUSES.has(b.status);
-  if (aGraded !== bGraded) return aGraded ? a : b;
-  return sortStamp(a) >= sortStamp(b) ? a : b;
-}
-
 function sortStamp(run: ScannedTaskRun): string {
   return run.startedAt ?? dirTimestamp(run.runId) ?? run.runId;
 }
@@ -264,7 +236,6 @@ async function scanRunDir(
 
   return {
     runId,
-    runDir,
     batchId,
     batchSynthetic: !explicitBatchId,
     caseId,
@@ -308,7 +279,6 @@ async function scanRunDir(
     failures,
     metrics,
     metricsSource: stringField(metricSidecar?.source),
-    hasIndexHtml: existsSync(join(runDir, 'index.html')),
   };
 }
 

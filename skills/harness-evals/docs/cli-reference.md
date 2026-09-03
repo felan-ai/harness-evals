@@ -100,11 +100,13 @@ Output includes:
 
 ### `view`
 
-Generate and open the aggregate workspace report, or locate single-run reports.
+Generate and open benchmark reports, or locate stored run reports. Plain
+`view` is equivalent to `view --benchmark all`.
 
-`view --benchmark <id>` writes one benchmark report that evaluates and displays
-quality-gate state. A failed gate makes an arm ineligible but does not prevent
-report generation.
+`view --benchmark <id>` regenerates the benchmark landing page and all declared
+benchmark artifacts, then opens the selected report. This keeps its back link
+valid. A failed quality gate makes an arm ineligible but does not prevent report
+generation.
 `view --benchmark all` writes a landing page and HTML/JSON/CSV artifacts for
 every declared benchmark, using the newest relevant batch by default.
 Only runs stamped with the current benchmark definition digest are eligible;
@@ -112,35 +114,40 @@ after changing a benchmark definition, run it again before viewing or
 publishing the report.
 
 ```bash
-harness-evals view [--config path] [--batch id|latest|all] [--agents a,b] [--suite name] [--status s1,s2] [--no-open] [--port n]
+harness-evals view [--config path] [--batch id|latest|all] [--no-open] [--port n]
+harness-evals view --benchmark <id|all> [--config path] [--batch id|latest|all] [--no-open] [--port n]
 harness-evals view --run id | --latest [--open] [--port n]
 ```
 
 Flags:
 
-- `--batch <id|latest|all>`: pre-select batches in the report (comma list allowed). Default: newest batch.
-- `--agents`, `--suite`, `--status`: pre-set the report's filters.
+- `--batch <id|latest|all>`: choose retained batches for benchmark analysis (comma list allowed). Default: newest relevant batch per benchmark.
 - `--no-open`: write and print the report path without opening a browser.
 - `--run <id>`: target a specific run directory under the artifact root (back-compat detail view).
 - `--latest`: target the last invocation's `results.html`.
-- `--open`: open the file path or local server URL (aggregate view opens by default).
+- `--open`: open a stored run/latest file path or local server URL (benchmark views open by default).
 - `--port <n>`: serve reports on `127.0.0.1:<n>` instead of just printing the file path.
 
 Behavior:
 
-- Default: scans every run directory, writes `<outputRoot>/report/index.html` (self-contained interactive aggregate: batch selector, filters, charts), and opens it.
+- Default: writes `<outputRoot>/benchmarks/index.html` plus each declared benchmark's HTML/JSON/CSV artifacts, then opens the landing page.
 - With `--run`, resolves `<artifactRoot>/<run-id>/index.html`.
 - With `--latest`, resolves `<outputRoot>/latest/results.html`.
-- With `--port`, serves `/report/...`, `/runs/...`, and `/latest/...` until interrupted.
+- With `--port`, serves `/benchmarks/...`, `/runs/...`, and `/latest/...` until interrupted.
 
 ### `export`
 
-Export the aggregate report (filtered server-side), or copy/render legacy reports.
+Export a declared benchmark report or a stored run report.
 
 Use `--benchmark <id>` to export its benchmark-specific HTML, JSON, or CSV.
+Benchmark HTML leads with a signed, goal-aware percentage and shows all
+persisted metrics in an arm-column matrix with absolute deltas. JSON and CSV
+retain the raw percentage change and every configured objective. Changing the
+objective array changes the benchmark digest; reprocess a completed prior batch
+to create derived runs for the new definition before viewing or exporting it.
 
 ```bash
-harness-evals export [--config path] --format html|json|csv --output path [--batch id|latest|all] [--agents a,b] [--suite name] [--case id] [--status s1,s2]
+harness-evals export --benchmark <id> [--config path] --format html|json|csv --output path [--batch id|latest|all]
 harness-evals export --run id | --latest --format html|json|csv --output path
 ```
 
@@ -151,14 +158,14 @@ Required flags:
 
 Optional flags:
 
-- `--batch <id|latest|all>`: which batches to include (default `latest`); merging several keeps the newest graded run per (case, agent, attempt number), while distinct attempts remain separate.
-- `--agents`, `--suite`, `--case`, `--status`: server-side row filters.
-- `--latest`: copy `<outputRoot>/latest/results.<format>` verbatim (pre-aggregate behavior).
+- `--batch <id|latest|all>`: which retained batch to use for benchmark analysis (default `latest`).
+- `--latest`: copy `<outputRoot>/latest/results.<format>`.
 - `--run <id>`: export a specific historical run from its `result.json`.
 
 Behavior:
 
-- Default renders the aggregate: `html` is the interactive report, `csv` one row per task run, `json` the embedded data model.
+- Benchmark exports render the declared benchmark in the requested format.
+- Run/latest exports render or copy the selected stored report.
 - Creates parent directories for `--output` automatically.
 - Fails if visualization is disabled or the requested format is not enabled in config.
 

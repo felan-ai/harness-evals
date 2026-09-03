@@ -71,15 +71,14 @@ A passing run exits with code `0`. A failing run exits with code `1` and still w
 
 ## 5. View the report
 
-By default, `view` scans all workspace runs, generates the aggregate report,
-prints its path, and opens it. The newest batch is preselected, and the report
-can filter across the scanned runs:
+By default, `view` generates the benchmark landing page and each declared
+benchmark's report, prints the landing-page path, and opens it:
 
 ```bash
 harness-evals view
 ```
 
-To generate the aggregate report and print its path without opening it:
+To generate the benchmark reports and print the path without opening it:
 
 ```bash
 harness-evals view --no-open
@@ -98,7 +97,8 @@ harness-evals view --run <run-id>
 ```
 
 Use `--latest` to target the pre-rendered summary from the last invocation
-instead of generating an aggregate report:
+instead of generating benchmark reports. This is also the useful view when a
+project has not declared benchmarks:
 
 ```bash
 harness-evals view --latest --open
@@ -108,9 +108,9 @@ Per-run HTML lives at:
 
 - `.harness-evals/runs/<run-id>/index.html`
 
-The generated aggregate HTML report lives at:
+The generated benchmark landing page lives at:
 
-- `.harness-evals/output/report/index.html`
+- `.harness-evals/output/benchmarks/index.html`
 
 The last invocation's summary lives at:
 
@@ -118,13 +118,12 @@ The last invocation's summary lives at:
 
 ## 6. Export a report file
 
-By default, `export` renders an aggregate of the newest batch in one of the
-enabled visualization formats:
+Export a declared benchmark report in one of the enabled visualization formats:
 
 ```bash
-harness-evals export --format html --output ./artifacts/results.html
-harness-evals export --format json --output ./artifacts/results.json
-harness-evals export --format csv --output ./artifacts/results.csv
+harness-evals export --benchmark <id> --format html --output ./artifacts/results.html
+harness-evals export --benchmark <id> --format json --output ./artifacts/results.json
+harness-evals export --benchmark <id> --format csv --output ./artifacts/results.csv
 ```
 
 Pass `--latest` to copy the last invocation's pre-rendered summary instead:
@@ -145,7 +144,7 @@ harness-evals export --run <run-id> --format json --output ./artifacts/run.json
 
 Useful generated paths:
 
-- `.harness-evals/output/report/index.html` (after plain `view`)
+- `.harness-evals/output/benchmarks/index.html` (after plain `view`)
 - `.harness-evals/output/latest/results.html`
 - `.harness-evals/output/latest/results.json`
 - `.harness-evals/output/latest/results.csv`

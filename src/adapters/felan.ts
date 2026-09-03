@@ -1,8 +1,10 @@
-import { access, chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, chmod, copyFile, lstat, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import type { CostReport } from '../cost/types.js';
 import { expandTrustedPath } from '../config/paths.js';
-import { parsePiJsonlEvents } from './pi-jsonl.js';
+import { parsePiJsonlEventsWithContext, parsePiJsonlSessionCost } from './pi-jsonl.js';
+import { mergeCostReports } from '../cost/rollup.js';
 import { prepareFelanOAuth } from './felan-oauth.js';
 import type { AgentAdapter, AgentStepPrepareInput, AgentStepRunPlan } from './types.js';
 
@@ -94,11 +96,141 @@ export const felanAdapter: AgentAdapter = {
         errors: input.stderr.trim() ? [input.stderr.trim()] : [],
       };
     }
-    const summary = await parsePiJsonlEvents(input);
+    const parsed = await parsePiJsonlEventsWithContext(input);
+    const summary = parsed.summary;
     if (input.stderr.trim()) summary.errors.push(input.stderr.trim());
+    if (input.configDir && parsed.sessionId) {
+      const childCosts = await readChildSessionCosts(input.configDir, parsed.sessionId);
+      if (childCosts.length > 0) {
+        summary.cost = mergeCostReports([summary.cost, ...childCosts.map((entry) => entry.cost)]);
+        if (summary.cost) {
+          summary.cost.metadata = {
+            ...(summary.cost.metadata ?? {}),
+            felanChildSessionCount: childCosts.length,
+          };
+        }
+      }
+    }
     return summary;
   },
 };
+
+const MAX_CHILD_SESSION_FILES = 256;
+const MAX_CHILD_SESSION_BYTES = 16 * 1024 * 1024;
+const MAX_CHILD_RECORD_BYTES = 4 * 1024 * 1024;
+
+type ChildSessionCost = { id: string; cost: CostReport };
+
+async function readChildSessionCosts(configDir: string, rootSessionId: string): Promise<ChildSessionCost[]> {
+  const felanDir = resolve(configDir, FELAN_CONFIG_DIR);
+  const subagentsDir = join(felanDir, 'subagents', encodeURIComponent(rootSessionId));
+  const sessionsDir = join(subagentsDir, 'sessions');
+  let entries;
+  try {
+    entries = await readdir(sessionsDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  let realSessionsDir: string;
+  try {
+    realSessionsDir = await realpath(sessionsDir);
+  } catch {
+    return [];
+  }
+  const realFelanDir = await realpath(felanDir).catch(() => felanDir);
+  if (!isPathInside(realFelanDir, realSessionsDir)) return [];
+  const childSessionFiles = await readChildSessionFiles(subagentsDir, realFelanDir, rootSessionId);
+  if (childSessionFiles.size === 0) return [];
+  const costs: ChildSessionCost[] = [];
+  const seenSessionIds = new Set<string>();
+  const sessionEntries = entries
+    .filter((entry) => entry.isFile() && childSessionFiles.has(entry.name))
+    .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+    .slice(0, MAX_CHILD_SESSION_FILES);
+  for (const entry of sessionEntries) {
+    const path = join(sessionsDir, entry.name);
+    try {
+      const info = await lstat(path);
+      if (!info.isFile() || info.size > MAX_CHILD_SESSION_BYTES) continue;
+      const realFile = await realpath(path);
+      if (!isPathInside(realSessionsDir, realFile)) continue;
+      const parsed = parsePiJsonlSessionCost(await readFile(realFile, 'utf8'));
+      const expectedSessionId = childSessionFiles.get(entry.name);
+      if (
+        parsed
+        && parsed.sessionId === expectedSessionId
+        && parsed.sessionId !== rootSessionId
+        && !seenSessionIds.has(parsed.sessionId)
+      ) {
+        seenSessionIds.add(parsed.sessionId);
+        costs.push({ id: parsed.sessionId, cost: parsed.cost });
+      }
+    } catch {
+      continue;
+    }
+  }
+  return costs;
+}
+
+async function readChildSessionFiles(
+  subagentsDir: string,
+  realFelanDir: string,
+  rootSessionId: string,
+): Promise<Map<string, string>> {
+  const path = join(subagentsDir, 'records.json');
+  try {
+    const info = await lstat(path);
+    if (!info.isFile() || info.size > MAX_CHILD_RECORD_BYTES) return new Map();
+    const realFile = await realpath(path);
+    if (!isPathInside(realFelanDir, realFile)) return new Map();
+    const stored = JSON.parse(await readFile(realFile, 'utf8')) as unknown;
+    if (!isRecord(stored) || stored.version !== 1 || !Array.isArray(stored.children)) return new Map();
+    const filesBySessionId = new Map<string, string>();
+    const duplicateSessionIds = new Set<string>();
+    for (const child of stored.children) {
+      if (!isRecord(child) || !isRecord(child.record)) continue;
+      const sessionId = child.record.agentId;
+      if (
+        child.record.rootSessionId !== rootSessionId
+        || typeof sessionId !== 'string'
+        || typeof child.sessionFile !== 'string'
+      ) continue;
+      const fileName = recordedSessionFileName(child.sessionFile, rootSessionId, sessionId);
+      if (!fileName || duplicateSessionIds.has(sessionId)) continue;
+      const previous = filesBySessionId.get(sessionId);
+      if (previous && previous !== fileName) {
+        filesBySessionId.delete(sessionId);
+        duplicateSessionIds.add(sessionId);
+        continue;
+      }
+      filesBySessionId.set(sessionId, fileName);
+    }
+    return new Map([...filesBySessionId].map(([sessionId, fileName]) => [fileName, sessionId]));
+  } catch {
+    return new Map();
+  }
+}
+
+function recordedSessionFileName(sessionFile: string, rootSessionId: string, sessionId: string): string | undefined {
+  const normalized = sessionFile.replaceAll('\\', '/');
+  const fileName = normalized.split('/').at(-1);
+  if (!fileName || !sessionFileMatchesId(fileName, sessionId)) return undefined;
+  const expectedSuffix = `/felan/subagents/${encodeURIComponent(rootSessionId)}/sessions/${fileName}`;
+  return normalized.endsWith(expectedSuffix) ? fileName : undefined;
+}
+
+function sessionFileMatchesId(fileName: string, sessionId: string): boolean {
+  if (fileName === `${sessionId}.jsonl`) return true;
+  const suffix = `_${sessionId}.jsonl`;
+  if (!fileName.endsWith(suffix)) return false;
+  return /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/.test(fileName.slice(0, -suffix.length));
+}
+
+function isPathInside(parent: string, child: string): boolean {
+  if (!isAbsolute(parent) || !isAbsolute(child)) return false;
+  const relation = relative(parent, child);
+  return relation === '' || (relation !== '..' && !relation.startsWith(`..${sep}`));
+}
 
 function currentFelanDir(input: AgentStepPrepareInput): string {
   return expandTrustedPath(input.agent.userConfigDirs?.[0] ?? process.env.FELAN_AGENT_DIR ?? join(homedir(), '.felan'));

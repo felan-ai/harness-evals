@@ -103,7 +103,7 @@ Fixes:
 
 What `view` expects:
 
-- aggregate report: `<outputRoot>/report/index.html`
+- benchmark landing page: `<outputRoot>/benchmarks/index.html` (plain `view`)
 - latest summary: `<outputRoot>/latest/results.html` (only with `view --latest`)
 - run report: `<artifactRoot>/<run-id>/index.html`
 

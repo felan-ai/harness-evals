@@ -16,15 +16,13 @@ const definition: BenchmarkDefinition = {
   arms: { baseline: 'base', candidate: 'candidate' },
   trials: 3,
   qualityGates: [{ metric: 'quality.passRate', min: 1 }],
-  objective: { metric: 'cost.total', goal: 'minimize' },
+  objective: [{ metric: 'cost.total', goal: 'minimize' }],
   aggregation: { trials: 'median', cases: 'macroMean' },
-  secondaryMetrics: [],
 };
 
-function run(agentName: string, caseId: string, attemptNumber: number, cost: number, pass = true): ScannedTaskRun {
+function run(agentName: string, caseId: string, attemptNumber: number, cost: number, pass = true, extraMetrics: Record<string, number> = {}): ScannedTaskRun {
   return {
     runId: `${agentName}-${caseId}-${attemptNumber}`,
-    runDir: '/runs',
     batchId: '20260101-010203-abcd',
     batchSynthetic: false,
     caseId,
@@ -34,8 +32,7 @@ function run(agentName: string, caseId: string, attemptNumber: number, cost: num
     attempts: 3,
     status: pass ? 'passed' : 'failed',
     pass,
-    metrics: { 'cost.total': cost, 'quality.passRate': pass ? 1 : 0 },
-    hasIndexHtml: false,
+    metrics: { 'cost.total': cost, 'quality.passRate': pass ? 1 : 0, ...extraMetrics },
   };
 }
 
@@ -57,20 +54,20 @@ test('benchmark analyzer reduces trials, macro-averages cases, and computes base
     averageChangePercent: 25,
     minChangePercent: -50,
     maxChangePercent: 100,
-    averageImprovementPercent: -25,
-    minImprovementPercent: -100,
-    maxImprovementPercent: 50,
+    averageGainPercent: -25,
+    minGainPercent: -100,
+    maxGainPercent: 50,
     comparedCases: 2,
     expectedCases: 2,
   });
-  expect(report.comparison.cases[0]).toMatchObject({ changePercent: 100, improvementPercent: -100 });
+  expect(report.comparison.cases[0]).toMatchObject({ changePercent: 100, gainPercent: -100 });
   const html = renderBenchmarkIndexHtml([report]);
   expect(html.match(/class="benchmark-row"/g)).toHaveLength(1);
   expect(html).toContain('<h1>Benchmarks</h1>');
-  expect(html).toContain('Average change +25.0%; range -50.0% to +100.0% across 2 tests; unfavorable');
+  expect(html).toContain('Average outcome -25.0%; range -100.0% to +50.0% across 2 tests; unfavorable');
   expect(html).toContain('<span class="status-text bad">unfavorable</span>');
   expect(html).not.toContain('<small>unfavorable</small>');
-  expect(html).toContain('-50.0% to +100.0%');
+  expect(html).toContain('-100.0% to +50.0%');
   expect(html).toContain('class="change-range"');
   expect(html).toContain('--range-left:0.0000%;--range-width:100.0000%');
   const detailHtml = renderBenchmarkHtml(report);
@@ -83,9 +80,8 @@ test('benchmark analyzer reduces trials, macro-averages cases, and computes base
   expect(detailHtml).not.toContain('>Assessment<');
   expect(detailHtml).not.toContain('<caption>Attempts for');
   expect(detailHtml).not.toContain('<th scope="col">Attempt</th>');
-  expect(renderBenchmarkCsv(report)).toContain('changePercent,improvementPercent,averageChangePercent,minChangePercent,maxChangePercent');
-  expect(renderBenchmarkCsv(report)).not.toContain('gain');
-  expect(renderBenchmarkJson(report)).toContain('"comparison"');
+  expect(renderBenchmarkCsv(report)).toContain('changePercent,gainPercent,objectiveRole,objectiveGoal,averageChangePercent,minChangePercent,maxChangePercent');
+    expect(renderBenchmarkJson(report)).toContain('"comparison"');
   expect(renderBenchmarkJson(report)).not.toContain('"gain"');
 });
 
@@ -98,6 +94,88 @@ test('benchmark analyzer reports incomplete and quality regression arms', () => 
   expect(report.baseline.state).toBe('incomplete');
   expect(report.candidate.state).toBe('incomplete');
   expect(report.comparison.averageChangePercent).toBeUndefined();
+});
+
+test('benchmark objectives report primary and secondary gains and retain every metric', () => {
+  const twoObjectives: BenchmarkDefinition = {
+    ...definition,
+    objective: [
+      { metric: 'cost.total', goal: 'minimize' },
+      { metric: 'usage.promptTokens', goal: 'minimize' },
+    ],
+    select: { cases: ['one'] },
+    trials: 1,
+  };
+  const runs = [
+    run('base', 'one', 1, 10, true, { 'usage.promptTokens': 1_000, 'usage.outputTokens': 200, 'usage.requests': 3, 'duration.ms': 900 }),
+    run('candidate', 'one', 1, 5, true, { 'usage.promptTokens': 500, 'usage.outputTokens': 150, 'usage.requests': 2, 'duration.ms': 700 }),
+  ];
+  const report = analyzeBenchmark({ id: 'rtk', definition: twoObjectives, runs });
+  expect(report.objectiveComparisons.map((item) => [item.role, item.metric, item.averageGainPercent])).toEqual([
+    ['primary', 'cost.total', 50],
+    ['secondary', 'usage.promptTokens', 50],
+  ]);
+  expect(report.baseline.values).toMatchObject({ 'usage.outputTokens': 200, 'usage.requests': 3, 'duration.ms': 900 });
+  expect(report.candidate.deltas).toMatchObject({ 'usage.promptTokens': -500, 'usage.outputTokens': -50, 'usage.requests': -1, 'duration.ms': -200 });
+  const html = renderBenchmarkHtml(report);
+  expect(html).toContain('primary outcome');
+  expect(html).toContain('Prompt tokens');
+  expect(html).toContain('Output tokens');
+  expect(html).toContain('Requests');
+  expect(html).toContain('<h2>Metrics</h2>');
+  expect(html).toContain('<th scope="col"><span class="arm-heading">base-id');
+  expect(html).toContain('<th scope="col"><span class="arm-heading">candidate-id');
+  expect(html).toContain('<th scope="row">Output tokens</th><td>200 tokens</td><td>150 tokens</td><td>-50 tokens</td>');
+  expect(html).not.toContain('<h2>Arms</h2>');
+  expect(html).not.toContain('All metrics');
+  expect(html).not.toContain('Raw change');
+  expect(html).not.toContain('Gain');
+  const indexHtml = renderBenchmarkIndexHtml([report]);
+  expect(indexHtml).toContain('<span>Secondary objective</span>');
+  expect(indexHtml).toContain('<span class="secondary-outcome positive" aria-label="Secondary outcome: 50.0% fewer prompt tokens; favorable">50.0% fewer prompt tokens</span>');
+  expect(indexHtml).not.toContain('<span>Range</span>');
+  expect(renderBenchmarkJson(report)).toContain('"role": "secondary"');
+  expect(renderBenchmarkCsv(report)).toContain('usage.promptTokens');
+});
+
+test('secondary home-page outcomes describe direction and use unfavorable and neutral colors', () => {
+  const twoObjectives: BenchmarkDefinition = {
+    ...definition,
+    objective: [
+      { metric: 'cost.total', goal: 'minimize' },
+      { metric: 'usage.promptTokens', goal: 'minimize' },
+    ],
+    select: { cases: ['one'] },
+    trials: 1,
+  };
+  const unfavorable = analyzeBenchmark({
+    id: 'secondary-unfavorable',
+    definition: twoObjectives,
+    runs: [
+      run('base', 'one', 1, 10, true, { 'usage.promptTokens': 1_000 }),
+      run('candidate', 'one', 1, 5, true, { 'usage.promptTokens': 1_500 }),
+    ],
+  });
+  const neutral = analyzeBenchmark({
+    id: 'secondary-neutral',
+    definition: twoObjectives,
+    runs: [
+      run('base', 'one', 1, 10, true, { 'usage.promptTokens': 1_000 }),
+      run('candidate', 'one', 1, 5, true, { 'usage.promptTokens': 1_000 }),
+    ],
+  });
+  const maximize = analyzeBenchmark({
+    id: 'secondary-maximize',
+    definition: { ...twoObjectives, objective: [twoObjectives.objective[0], { metric: 'usage.promptTokens', goal: 'maximize' }] },
+    runs: [
+      run('base', 'one', 1, 10, true, { 'usage.promptTokens': 1_000 }),
+      run('candidate', 'one', 1, 5, true, { 'usage.promptTokens': 1_500 }),
+    ],
+  });
+  const html = renderBenchmarkIndexHtml([unfavorable, neutral, maximize]);
+  expect(html).toContain('<span class="secondary-outcome negative" aria-label="Secondary outcome: 50.0% more prompt tokens; unfavorable">50.0% more prompt tokens</span>');
+  expect(html).toContain('<span class="secondary-outcome neutral" aria-label="Secondary outcome: No change in prompt tokens; no change">No change in prompt tokens</span>');
+  expect(html).toContain('<span class="secondary-outcome positive" aria-label="Secondary outcome: 50.0% more prompt tokens; favorable">50.0% more prompt tokens</span>');
 });
 
 test('benchmark reports identify failed attempts without raw diagnostics', () => {
@@ -131,7 +209,7 @@ test('benchmark reports identify failed attempts without raw diagnostics', () =>
 });
 
 test('benchmark improvements respect maximize objectives', () => {
-  const maximize = { ...definition, objective: { metric: 'cost.total', goal: 'maximize' as const } };
+  const maximize: BenchmarkDefinition = { ...definition, objective: [{ metric: 'cost.total', goal: 'maximize' }] };
   const runs = [
     ...[1, 2, 3].map((attempt) => run('base', 'one', attempt, attempt)),
     ...[1, 2, 3].map((attempt) => run('base', 'two', attempt, 10 + attempt)),
@@ -143,9 +221,9 @@ test('benchmark improvements respect maximize objectives', () => {
     averageChangePercent: 25,
     minChangePercent: -50,
     maxChangePercent: 100,
-    averageImprovementPercent: 25,
-    minImprovementPercent: -50,
-    maxImprovementPercent: 100,
+    averageGainPercent: 25,
+    minGainPercent: -50,
+    maxGainPercent: 100,
   });
 });
 
@@ -166,9 +244,13 @@ test('favorable home-page changes rely on the green value without a label', () =
     ...[1, 2, 3].map((attempt) => run('candidate', 'one', attempt, 5)),
   ];
   const html = renderBenchmarkIndexHtml([analyzeBenchmark({ id: 'favorable', definition: singleCase, runs })]);
-  expect(html).toContain('<strong class="change-value positive">-50.0%</strong>');
+  expect(html).toContain('<strong class="change-value positive">+50.0%</strong>');
   expect(html).not.toContain('>favorable</span>');
   expect(html).not.toContain('<small>favorable</small>');
+  expect(html).toContain('<span class="secondary-outcome muted" aria-label="No secondary objective">—</span>');
+  expect(html).not.toContain('<span>Range</span>');
+  expect(html.toLowerCase()).not.toContain('gain');
+  expect(html.toLowerCase()).not.toContain('raw change');
 });
 
 test('quality gates use every trial instead of the objective median', () => {
@@ -193,7 +275,7 @@ test('change direction remains visible when a quality gate fails', () => {
   expect(report.candidate.state).toBe('quality regression');
 
   const html = `${renderBenchmarkIndexHtml([report])}${renderBenchmarkHtml(report)}`;
-  expect(html).toContain('class="change-value negative">-50.0%');
+  expect(html).toContain('class="change-value negative">+50.0%</strong>');
   expect(html).toContain('class="change-chart negative"');
   expect(html).toContain('class="status-text bad">quality regression</span>');
   expect(html).toContain('class="quality bad">Failed');
@@ -212,8 +294,8 @@ test('benchmark-wide quality regression does not relabel passing tests and attem
   const html = renderBenchmarkHtml(report);
   const passingTest = html.match(/<details class="test-block"><summary[^>]*><span class="test-name">two<\/span>[\s\S]*?<\/details>/)?.[0];
   expect(passingTest).toBeDefined();
-  expect(passingTest).toContain('class="change-value positive">-50.0%');
-  expect(passingTest).toContain('aria-label="Raw change -50.0%; favorable"');
+  expect(passingTest).toContain('class="change-value positive">+50.0%');
+  expect(passingTest).toContain('aria-label="Outcome +50.0%; favorable"');
   expect(passingTest).not.toContain('<span>favorable</span>');
   expect(passingTest).not.toContain('quality regression');
 });
@@ -226,7 +308,7 @@ test('zero change uses a neutral style', () => {
   ];
   const report = analyzeBenchmark({ id: 'no-change', definition: singleCase, runs });
   const html = `${renderBenchmarkIndexHtml([report])}${renderBenchmarkHtml(report)}`;
-  expect(html).toContain('class="change-value neutral">0.0%');
+  expect(html).toContain('class="change-value neutral">0.0%</strong>');
   expect(html).toContain('class="change-chart neutral"');
 });
 
@@ -237,13 +319,15 @@ test('raw change stays unavailable when the baseline is zero', () => {
   expect(report.comparison.cases[0]?.changePercent).toBeUndefined();
   const html = `${renderBenchmarkIndexHtml([report])}${renderBenchmarkHtml(report)}`;
   expect(html).toContain('Change unavailable');
-  expect(html).toContain('Change vs baseline');
+  expect(html).toContain('vs baseline');
 });
 
-test('tiny raw changes retain their sign and precision', () => {
+test('tiny goal-aware outcomes retain their sign and precision', () => {
   const singleCase = { ...definition, select: { cases: ['one'] }, trials: 1 };
   const report = analyzeBenchmark({ id: 'tiny-change', definition: singleCase, runs: [run('base', 'one', 1, 100), run('candidate', 'one', 1, 99.99)] });
-  expect(renderBenchmarkHtml(report)).toContain('-0.01%');
+  expect(report.comparison.cases[0]?.changePercent).toBeCloseTo(-0.01);
+  expect(report.comparison.cases[0]?.gainPercent).toBeCloseTo(0.01);
+  expect(renderBenchmarkHtml(report)).toContain('+0.01%');
 });
 
 test('benchmark reports require matching stamped provenance and exact attempts', () => {
@@ -341,12 +425,12 @@ benchmarks:
     arms: { baseline: base, candidate: candidate }
     trials: 1
     qualityGates: [{ metric: quality.passRate, min: 1 }]
-    objective: { metric: cost.total, goal: minimize }
+    objective: [{ metric: cost.total, goal: minimize }]
 `);
     for (const [agentName, cost] of [['base', 4], ['candidate', 2]] as const) {
       const runDir = join(runs, `${agentName}-one-2026-01-01T00-00-00-000Z-0`);
       await mkdir(runDir, { recursive: true });
-      await writeFile(join(runDir, 'summary.json'), JSON.stringify({ caseId: 'one', agentName, comparisonId: agentName, benchmark: { id: 'cost', revision: 1, digest: benchmarkDefinitionDigest('cost', { revision: 1, label: 'Cost', select: { cases: ['one'] }, arms: { baseline: 'base', candidate: 'candidate' }, trials: 1, qualityGates: [{ metric: 'quality.passRate', min: 1 }], objective: { metric: 'cost.total', goal: 'minimize' }, aggregation: { trials: 'median', cases: 'macroMean' }, secondaryMetrics: [] }) }, status: 'passed', pass: true, metrics: { 'quality.passRate': 1, 'cost.total': cost } }));
+      await writeFile(join(runDir, 'summary.json'), JSON.stringify({ caseId: 'one', agentName, comparisonId: agentName, benchmark: { id: 'cost', revision: 1, digest: benchmarkDefinitionDigest('cost', { revision: 1, label: 'Cost', select: { cases: ['one'] }, arms: { baseline: 'base', candidate: 'candidate' }, trials: 1, qualityGates: [{ metric: 'quality.passRate', min: 1 }], objective: [{ metric: 'cost.total', goal: 'minimize' }], aggregation: { trials: 'median', cases: 'macroMean' } }) }, status: 'passed', pass: true, metrics: { 'quality.passRate': 1, 'cost.total': cost } }));
     }
     const output = join(root, 'benchmark.json');
     const result = Bun.spawnSync(['bun', join(import.meta.dir, '..', 'src', 'cli.ts'), 'export', '--benchmark', 'cost', '--format', 'json', '--output', output, '--config', join(root, 'harness-evals.yaml')], { cwd: root });
@@ -358,10 +442,20 @@ benchmarks:
     const stale = join(root, '.harness-evals', 'output', 'benchmarks', 'stale');
     await mkdir(stale, { recursive: true });
     await writeFile(join(stale, 'results.html'), 'stale');
-    const view = Bun.spawnSync(['bun', join(import.meta.dir, '..', 'src', 'cli.ts'), 'view', '--benchmark', 'all', '--no-open', '--config', join(root, 'harness-evals.yaml')], { cwd: root });
+    const view = Bun.spawnSync(['bun', join(import.meta.dir, '..', 'src', 'cli.ts'), 'view', '--no-open', '--config', join(root, 'harness-evals.yaml')], { cwd: root });
     if (view.exitCode !== 0) throw new Error(new TextDecoder().decode(view.stderr));
+    expect(new TextDecoder().decode(view.stdout).trim()).toBe(join(root, '.harness-evals', 'output', 'benchmarks', 'index.html'));
     expect(existsSync(join(root, '.harness-evals', 'output', 'benchmarks', 'index.html'))).toBe(true);
+    expect(existsSync(join(root, '.harness-evals', 'output', 'report', 'index.html'))).toBe(false);
     expect(existsSync(stale)).toBe(false);
+
+    const benchmarkRoot = join(root, '.harness-evals', 'output', 'benchmarks');
+    await rm(benchmarkRoot, { recursive: true, force: true });
+    const specificView = Bun.spawnSync(['bun', join(import.meta.dir, '..', 'src', 'cli.ts'), 'view', '--benchmark', 'cost', '--no-open', '--config', join(root, 'harness-evals.yaml')], { cwd: root });
+    if (specificView.exitCode !== 0) throw new Error(new TextDecoder().decode(specificView.stderr));
+    expect(new TextDecoder().decode(specificView.stdout).trim()).toBe(join(benchmarkRoot, 'cost', 'results.html'));
+    expect(existsSync(join(benchmarkRoot, 'index.html'))).toBe(true);
+    expect(await readFile(join(benchmarkRoot, 'cost', 'results.html'), 'utf8')).toContain('href="../index.html"');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

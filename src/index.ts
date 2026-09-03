@@ -12,6 +12,7 @@ export {
   type BenchmarkCaseComparison,
   type BenchmarkCaseResult,
   type BenchmarkComparisonSummary,
+  type BenchmarkObjectiveComparison,
   type BenchmarkReportData,
 } from './benchmarks/analyze.js';
 export { renderBenchmarkCsv, renderBenchmarkHtml, renderBenchmarkIndexHtml, renderBenchmarkJson } from './benchmarks/render.js';
@@ -96,6 +97,7 @@ export type {
   BenchmarkGoal,
   BenchmarkMetricRef,
   BenchmarkObjective,
+  BenchmarkObjectives,
   BenchmarkQualityGate,
   BenchmarkRunMetadata,
   BenchmarkSelector,

@@ -141,7 +141,8 @@ Useful top-level sections:
 - `judge`: shared defaults for `llmJudge` assertions
 - `scoring`: weights for pass rate, judge score, verifier reward, latency, cost, token usage
 - `benchmarks`: named comparisons with selectors, baseline/candidate arms,
-  trials, quality gates, one objective, and explicit reducers
+  trials, quality gates, one primary objective and an optional secondary
+  objective, and explicit reducers
 
 Minimal benchmark example:
 
@@ -154,8 +155,15 @@ benchmarks:
     trials: 3
     qualityGates:
       - { metric: quality.passRate, min: 1 }
-    objective: { metric: cost.total, goal: minimize }
+    objective:
+      - { metric: cost.total, goal: minimize }
+      - { metric: usage.promptTokens, goal: minimize }
 ```
+
+`objective` is an ordered array with one or two entries. The first entry is
+the primary outcome; the second is optional and is useful for explaining a
+primary result, such as prompt-token usage behind a cost benchmark. Each entry
+has its own `metric` and `goal` (`minimize` or `maximize`).
 
 ## Config discovery
 
@@ -355,7 +363,7 @@ harness-evals list
 harness-evals run --suite smoke
 harness-evals run --case checkout-refactor --agents pi-gemini,claude-sonnet
 harness-evals view --latest --open
-harness-evals export --format html --output report.html
+harness-evals export --benchmark <id> --format html --output report.html
 harness-evals export --run <run-id> --format json --output run.json
 ```
 

@@ -192,8 +192,8 @@ There are four common report surfaces:
 
 - per-run artifacts under `artifactRoot/<run-id>/`
 - the last invocation's pre-rendered summary under `outputRoot/latest/`
-- the aggregate workspace report generated at `outputRoot/report/index.html`
-- named benchmark reports under `outputRoot/benchmarks/`
+- named benchmark reports and their landing page under `outputRoot/benchmarks/`
+- exported benchmark, latest, and per-run reports written to the path supplied with `export --output`
 
 ### Scoring
 

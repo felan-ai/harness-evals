@@ -11,10 +11,7 @@ import type { CliOverrides } from './config/schema.js';
 import { buildRunReport } from './visualization/report.js';
 import { renderReport } from './visualization/render.js';
 import type { VisualizationFormat } from './visualization/types.js';
-import { dedupeNewestValid, filterTaskRuns, scanWorkspaceRuns, type CaseInfoMap, type WorkspaceScanResult } from './visualization/scan.js';
-import { buildAggregateData, type AggregateInitialState } from './visualization/aggregate/data.js';
-import { renderAggregateHtml } from './visualization/aggregate/render.js';
-import { renderAggregateCsv, renderAggregateJson } from './visualization/aggregate/csv.js';
+import { filterTaskRuns, scanWorkspaceRuns, type CaseInfoMap, type WorkspaceScanResult } from './visualization/scan.js';
 import { publishBatch, publishBatchStatus } from './results/public/publish.js';
 import type { PublicBatchValidity } from './results/public/types.js';
 import { filterBenchmarkRuns, resolveBenchmarkSelection } from './benchmarks/select.js';
@@ -33,7 +30,6 @@ interface ParsedArgs extends CliOverrides {
   format?: VisualizationFormat;
   output?: string;
   batch?: string;
-  statuses?: string[];
   dryRun?: boolean;
   validity?: PublicBatchValidity;
   validityNote?: string;
@@ -97,13 +93,17 @@ async function main(): Promise<void> {
   }
 
   if (parsed.command === 'view') {
-    if (parsed.benchmarkId) {
+    const benchmarkId = parsed.benchmarkId ?? (!parsed.runId && !parsed.latest ? 'all' : undefined);
+    if (benchmarkId) {
       const config = await loadHarnessConfig({ configPath: parsed.configPath });
-      const reportPath = parsed.benchmarkId === 'all'
-        ? await writeBenchmarkIndex(config, parsed)
-        : await writeBenchmarkReport(config, parsed, 'html');
+      const benchmarkRequest = { ...parsed, benchmarkId };
+      if (benchmarkId !== 'all') resolveBenchmarkSelection(config, benchmarkId);
+      const indexPath = await writeBenchmarkIndex(config, benchmarkRequest);
+      const reportPath = benchmarkId === 'all'
+        ? indexPath
+        : join(config.outputRoot, 'benchmarks', benchmarkId, 'results.html');
       if (parsed.port !== undefined) {
-        const path = parsed.benchmarkId === 'all' ? '/benchmarks/index.html' : `/benchmarks/${encodeURIComponent(parsed.benchmarkId)}/results.html`;
+        const path = benchmarkId === 'all' ? '/benchmarks/index.html' : `/benchmarks/${encodeURIComponent(benchmarkId)}/results.html`;
         await serveReports(config, parsed.port, path, parsed.open ?? !parsed.noOpen);
         return;
       }
@@ -215,9 +215,6 @@ function parseArgs(argv: string[]): ParsedArgs {
       case '--batch':
         parsed.batch = readValue(argv, arg);
         break;
-      case '--status':
-        parsed.statuses = readValue(argv, arg).split(',').map((value) => value.trim()).filter(Boolean);
-        break;
       case '--dry-run':
         parsed.dryRun = true;
         break;
@@ -288,52 +285,23 @@ function parseSource(value: string): ReprocessSource {
 
 async function viewReport(parsed: ParsedArgs): Promise<void> {
   const config = await loadHarnessConfig({ configPath: parsed.configPath });
+  if (!parsed.runId && !parsed.latest) throw new Error('view requires --run, --latest, or a benchmark');
+  const reportPath = parsed.runId
+    ? join(config.artifactRoot, parsed.runId, 'index.html')
+    : join(config.outputRoot, 'latest', 'results.html');
+  if (!existsSync(reportPath)) throw new Error(`Report not found: ${reportPath}`);
 
-  // Back-compat detail views: a single run dir, or the last invocation's summary.
-  if (parsed.runId || parsed.latest) {
-    const reportPath = parsed.runId
-      ? join(config.artifactRoot, parsed.runId, 'index.html')
-      : join(config.outputRoot, 'latest', 'results.html');
-    if (!existsSync(reportPath)) throw new Error(`Report not found: ${reportPath}`);
-
-    if (parsed.port !== undefined) {
-      const urlPath = parsed.runId ? `/runs/${encodeURIComponent(parsed.runId)}/index.html` : '/latest/results.html';
-      await serveReports(config, parsed.port, urlPath, parsed.open ?? false);
-      return;
-    }
-
-    console.log(reportPath);
-    if (parsed.open) openPath(reportPath);
-    return;
-  }
-
-  // Default: aggregate report over every run in the workspace. The newest
-  // batch is pre-selected; all data is embedded so filters work client-side.
-  const reportPath = await writeAggregateReport(config, parsed);
   if (parsed.port !== undefined) {
-    await serveReports(config, parsed.port, '/report/index.html', parsed.open ?? !parsed.noOpen);
+    const urlPath = parsed.runId ? `/runs/${encodeURIComponent(parsed.runId)}/index.html` : '/latest/results.html';
+    await serveReports(config, parsed.port, urlPath, parsed.open ?? false);
     return;
   }
+
   console.log(reportPath);
-  if (!parsed.noOpen) openPath(reportPath);
+  if (parsed.open) openPath(reportPath);
 }
 
-async function writeAggregateReport(config: Awaited<ReturnType<typeof loadHarnessConfig>>, parsed: ParsedArgs): Promise<string> {
-  const scan = await scanAggregateRuns(config);
-  const reportDir = join(config.outputRoot, 'report');
-  const data = buildAggregateData({
-    scan,
-    workspace: config.projectRoot,
-    reportDir,
-    initialState: aggregateInitialState(parsed, scan),
-  });
-  await mkdir(reportDir, { recursive: true });
-  const reportPath = join(reportDir, 'index.html');
-  await writeFile(reportPath, renderAggregateHtml(data));
-  return reportPath;
-}
-
-async function scanAggregateRuns(config: Awaited<ReturnType<typeof loadHarnessConfig>>): Promise<WorkspaceScanResult> {
+async function scanReportRuns(config: Awaited<ReturnType<typeof loadHarnessConfig>>): Promise<WorkspaceScanResult> {
   const caseInfo: CaseInfoMap = {};
   for (const testCase of config.testCases) {
     caseInfo[testCase.id] = { suite: testCase.suite, description: testCase.description };
@@ -341,26 +309,10 @@ async function scanAggregateRuns(config: Awaited<ReturnType<typeof loadHarnessCo
   return scanWorkspaceRuns({ artifactRoot: config.artifactRoot, caseInfo });
 }
 
-function aggregateInitialState(parsed: ParsedArgs, scan: WorkspaceScanResult): AggregateInitialState | undefined {
-  const state: AggregateInitialState = {};
-  const batchIds = resolveBatchIds(parsed.batch, scan);
-  if (batchIds) state.batchIds = batchIds;
-  if (parsed.agents?.length) state.agents = parsed.agents;
-  if (parsed.suite) state.suites = [parsed.suite];
-  if (parsed.statuses?.length) state.statuses = parsed.statuses;
-  return Object.keys(state).length > 0 ? state : undefined;
-}
-
-function resolveBatchIds(batch: string | undefined, scan: WorkspaceScanResult): string[] | undefined {
-  if (!batch) return undefined;
-  if (batch === 'latest') return scan.batches[0] ? [scan.batches[0].batchId] : undefined;
-  if (batch === 'all') return scan.batches.map((entry) => entry.batchId);
-  return batch.split(',').map((value) => value.trim()).filter(Boolean);
-}
-
 async function exportReport(parsed: ParsedArgs): Promise<void> {
   if (!parsed.format) throw new Error('harness-evals export requires --format html|json|csv');
   if (!parsed.output) throw new Error('harness-evals export requires --output <path>');
+  if (!parsed.runId && !parsed.latest) throw new Error('harness-evals export requires --benchmark <id>, --run <id>, or --latest');
   const config = await loadHarnessConfig({ configPath: parsed.configPath });
   if (!config.visualization.enabled) throw new Error('Visualization is disabled');
   if (!config.visualization.formats.includes(parsed.format)) throw new Error(`Visualization format is not enabled: ${parsed.format}`);
@@ -368,8 +320,6 @@ async function exportReport(parsed: ParsedArgs): Promise<void> {
 
   await mkdir(dirname(output), { recursive: true });
 
-  // Back-compat: reuse the last invocation's pre-rendered summary. HTML links
-  // are relocated so file exports still point at the configured artifact root.
   if (parsed.latest) {
     const latest = join(config.outputRoot, 'latest', `results.${parsed.format}`);
     if (!existsSync(latest)) throw new Error(`Report not found: ${latest}`);
@@ -393,37 +343,6 @@ async function exportReport(parsed: ParsedArgs): Promise<void> {
     return;
   }
 
-  // Default: aggregate export, filtered server-side. --batch defaults to the
-  // newest batch; merging several keeps the newest graded attempt per pair.
-  const scan = await scanAggregateRuns(config);
-  const batchIds = resolveBatchIds(parsed.batch ?? 'latest', scan);
-  // Always dedupe: within one batch it's a no-op, and legacy day-buckets can
-  // hold superseded attempts that would skew rates.
-  const runs = dedupeNewestValid(filterTaskRuns(scan.taskRuns, {
-    batchIds,
-    agents: parsed.agents,
-    suites: parsed.suite ? [parsed.suite] : undefined,
-    cases: parsed.caseId ? [parsed.caseId] : undefined,
-    statuses: parsed.statuses,
-  }));
-  const includedBatches = new Set(runs.map((run) => run.batchId));
-  const data = buildAggregateData({
-    scan: {
-      taskRuns: runs,
-      batches: scan.batches.filter((entry) => includedBatches.has(entry.batchId)),
-      warnings: scan.warnings,
-    },
-    workspace: config.projectRoot,
-    reportDir: dirname(output),
-    initialState: includedBatches.size > 0 ? { batchIds: [...includedBatches] } : undefined,
-  });
-  const content = parsed.format === 'html'
-    ? renderAggregateHtml(data)
-    : parsed.format === 'csv'
-      ? `${renderAggregateCsv(data.taskRuns)}\n`
-      : renderAggregateJson(data);
-  await writeFile(output, content);
-  console.log(output);
 }
 
 async function exportBenchmarkReport(parsed: ParsedArgs): Promise<void> {
@@ -445,7 +364,7 @@ async function writeBenchmarkReport(
 ): Promise<string> {
   if (!parsed.benchmarkId) throw new Error('Benchmark ID is required');
   const selection = resolveBenchmarkSelection(config, parsed.benchmarkId);
-  const scan = await scanAggregateRuns(config);
+  const scan = await scanReportRuns(config);
   const relevantRuns = filterBenchmarkRuns(filterTaskRuns(scan.taskRuns, {
     agents: selection.agentNames,
     cases: selection.testCases.map((testCase) => testCase.id),
@@ -466,7 +385,7 @@ async function writeBenchmarkIndex(
   config: Awaited<ReturnType<typeof loadHarnessConfig>>,
   parsed: ParsedArgs,
 ): Promise<string> {
-  const scan = await scanAggregateRuns(config);
+  const scan = await scanReportRuns(config);
   const reportRoot = join(config.outputRoot, 'benchmarks');
   const reports = [];
   await rm(reportRoot, { recursive: true, force: true });
@@ -564,7 +483,6 @@ async function serveReports(config: Awaited<ReturnType<typeof loadHarnessConfig>
 function resolveStaticReportPath(config: Awaited<ReturnType<typeof loadHarnessConfig>>, pathname: string): string | undefined {
   const decoded = decodeURIComponent(pathname);
   if (decoded.startsWith('/latest/')) return safeJoin(join(config.outputRoot, 'latest'), decoded.slice('/latest/'.length));
-  if (decoded.startsWith('/report/')) return safeJoin(join(config.outputRoot, 'report'), decoded.slice('/report/'.length));
   if (decoded.startsWith('/benchmarks/')) return safeJoin(join(config.outputRoot, 'benchmarks'), decoded.slice('/benchmarks/'.length));
   if (decoded.startsWith('/runs/')) return safeJoin(config.artifactRoot, decoded.slice('/runs/'.length));
   return undefined;
@@ -636,23 +554,22 @@ function printHelp(): void {
 Commands:
   harness-evals run [--config path] [--suite name] [--case id] [--agents a,b] [--concurrency n] [--attempts n]
   harness-evals list [--config path]
-  harness-evals view [--config path] [--batch id|latest|all] [--agents a,b] [--suite name] [--status s1,s2] [--no-open] [--port n]
+  harness-evals view [--config path] [--batch id|latest|all] [--no-open] [--port n]
+  harness-evals view --benchmark <id|all> [--config path] [--batch id|latest|all] [--no-open] [--port n]
   harness-evals view --run id | --latest [--open] [--port n]
-  harness-evals export [--config path] --format html|json|csv --output path [--batch id|latest|all] [--agents a,b] [--suite name] [--case id] [--status s1,s2]
+  harness-evals export --benchmark id [--config path] --format html|json|csv --output path [--batch id|latest|all]
   harness-evals export --run id | --latest --format html|json|csv --output path
   Add --benchmark <id> to run, list, view, or export a declared benchmark.
-  Use view --benchmark all for the combined benchmark report.
+  Plain view is equivalent to view --benchmark all.
   harness-evals publish --batch id [--config path] [--dry-run] [--validity valid|invalid|superseded] [--validity-note text] [--superseded-by id] [--allow-unfinalized]
   harness-evals publish-status --batch id --validity valid|invalid|superseded [--config path] [--dry-run] [--validity-note text] [--superseded-by id]
   harness-evals reprocess --source <benchmark>=<batch> [--source ...] [--concurrency n] [--dry-run] [--probe-run id]
 
 View / export:
-  view (no --run/--latest) scans every run in the workspace into one
-  interactive report (newest batch pre-selected) and opens it; --no-open
-  suppresses the browser. export does the same aggregation server-side;
-  --batch defaults to latest, comma lists merge batches keeping the newest
-  graded attempt per (case, agent). --latest copies the last invocation's
-  pre-rendered summary; --run exports a single run directory.
+  view (no --run/--latest) generates the benchmark landing page and opens it;
+  --no-open suppresses the browser. export requires --benchmark, --latest, or
+  --run; --latest copies the last invocation's pre-rendered summary and --run
+  exports a single run directory.
 
 Run flags:
   --provider name     Override provider for selected agents

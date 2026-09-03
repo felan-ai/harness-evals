@@ -96,6 +96,8 @@ export interface AgentEventInput {
   stdout: string;
   stderr: string;
   plan: AgentStepRunPlan;
+  /** Run-owned host config directory for adapters that persist parse-time artifacts. */
+  configDir?: string;
   /** Full stdout artifact on disk when the runner streamed it (may exceed string limits — read line-wise). */
   stdoutPath?: string;
   stdoutTruncated?: boolean;

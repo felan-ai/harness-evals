@@ -46,7 +46,7 @@ export interface BenchmarkCaseComparison {
   baselineValue?: number;
   candidateValue?: number;
   changePercent?: number;
-  improvementPercent?: number;
+  gainPercent?: number;
   attempts: BenchmarkAttemptComparison[];
 }
 
@@ -55,7 +55,7 @@ export interface BenchmarkAttemptComparison {
   baselineValue?: number;
   candidateValue?: number;
   changePercent?: number;
-  improvementPercent?: number;
+  gainPercent?: number;
   baselineQuality?: BenchmarkAttemptQuality;
   candidateQuality?: BenchmarkAttemptQuality;
 }
@@ -64,12 +64,18 @@ export interface BenchmarkComparisonSummary {
   averageChangePercent?: number;
   minChangePercent?: number;
   maxChangePercent?: number;
-  averageImprovementPercent?: number;
-  minImprovementPercent?: number;
-  maxImprovementPercent?: number;
+  averageGainPercent?: number;
+  minGainPercent?: number;
+  maxGainPercent?: number;
   comparedCases: number;
   expectedCases: number;
   cases: BenchmarkCaseComparison[];
+}
+
+export interface BenchmarkObjectiveComparison extends BenchmarkComparisonSummary {
+  metric: string;
+  goal: BenchmarkDefinition['objective'][number]['goal'];
+  role: 'primary' | 'secondary';
 }
 
 export interface BenchmarkReportData {
@@ -80,6 +86,7 @@ export interface BenchmarkReportData {
   baseline: BenchmarkArmResult;
   candidate: BenchmarkArmResult;
   comparison: BenchmarkComparisonSummary;
+  objectiveComparisons: BenchmarkObjectiveComparison[];
   warnings: string[];
   runCount: number;
   derivedRunCount: number;
@@ -95,12 +102,19 @@ export function analyzeBenchmark(input: {
   const caseIds = [...new Set(input.cases ?? input.runs.map((run) => run.caseId))].sort();
   const selectedRuns = input.runs.filter((run) => run.attemptNumber !== undefined || definition.trials === 1);
   const armNames = [definition.arms.baseline, definition.arms.candidate];
-  const arms = armNames.map((agentName) => buildArm(agentName, definition, caseIds, selectedRuns));
+  const metricNames = metricsFor(definition, selectedRuns);
+  const arms = armNames.map((agentName) => buildArm(agentName, definition, caseIds, selectedRuns, metricNames));
   const baseline = arms[0];
   if (!baseline) throw new Error(`Benchmark ${input.id} has no baseline`);
   const candidate = arms[1];
   if (!candidate) throw new Error(`Benchmark ${input.id} has no candidate`);
-  for (const metric of metricsFor(definition)) candidate.deltas[metric] = delta(candidate.values[metric], baseline.values[metric]);
+  for (const metric of metricNames) candidate.deltas[metric] = delta(candidate.values[metric], baseline.values[metric]);
+  const objectiveComparisons = definition.objective.map((objective, index) => ({
+    ...summarizeComparison(objective, definition, caseIds, baseline, candidate),
+    metric: objective.metric,
+    goal: objective.goal,
+    role: index === 0 ? 'primary' as const : 'secondary' as const,
+  }));
   const warnings = arms.filter((arm) => arm.state !== 'eligible').map((arm) => `${arm.comparisonId}: ${arm.state}`);
   return {
     id: input.id,
@@ -109,7 +123,8 @@ export function analyzeBenchmark(input: {
     expectedTrials: definition.trials,
     baseline,
     candidate,
-    comparison: summarizeComparison(definition, caseIds, baseline, candidate),
+    comparison: objectiveComparisons[0] as BenchmarkComparisonSummary,
+    objectiveComparisons,
     warnings,
     runCount: selectedRuns.length,
     derivedRunCount: selectedRuns.filter((run) => run.metricsSource === 'historical-derived').length,
@@ -117,12 +132,13 @@ export function analyzeBenchmark(input: {
 }
 
 function summarizeComparison(
+  objective: BenchmarkDefinition['objective'][number],
   definition: BenchmarkDefinition,
   caseIds: readonly string[],
   baseline: BenchmarkArmResult,
   candidate: BenchmarkArmResult,
 ): BenchmarkComparisonSummary {
-  const metric = definition.objective.metric;
+  const metric = objective.metric;
   const cases = caseIds.map((caseId) => {
     const baselineCase = baseline.cases.find((item) => item.caseId === caseId);
     const candidateCase = candidate.cases.find((item) => item.caseId === caseId);
@@ -133,7 +149,7 @@ function summarizeComparison(
     const baselineQualityAttempts = baselineCase?.qualityAttempts ?? [];
     const candidateQualityAttempts = candidateCase?.qualityAttempts ?? [];
     const changePercent = percentageChange(baselineValue, candidateValue);
-    const improvementPercent = percentageImprovement(definition.objective.goal, changePercent);
+    const gainPercent = percentageGain(objective.goal, changePercent);
     const attemptNumbers = [...new Set([
       ...baselineAttempts.map((attempt) => attempt.attemptNumber),
       ...candidateAttempts.map((attempt) => attempt.attemptNumber),
@@ -145,18 +161,18 @@ function summarizeComparison(
       baselineValue,
       candidateValue,
       changePercent,
-      improvementPercent,
+      gainPercent,
       attempts: attemptNumbers.map((attemptNumber) => {
         const baselineAttempt = baselineAttempts.find((attempt) => attempt.attemptNumber === attemptNumber)?.value;
         const candidateAttempt = candidateAttempts.find((attempt) => attempt.attemptNumber === attemptNumber)?.value;
         const attemptChangePercent = percentageChange(baselineAttempt, candidateAttempt);
-        const attemptImprovementPercent = percentageImprovement(definition.objective.goal, attemptChangePercent);
+        const attemptImprovementPercent = percentageGain(objective.goal, attemptChangePercent);
         return {
           attemptNumber,
           baselineValue: baselineAttempt,
           candidateValue: candidateAttempt,
           changePercent: attemptChangePercent,
-          improvementPercent: attemptImprovementPercent,
+          gainPercent: attemptImprovementPercent,
           baselineQuality: baselineAttempts.find((attempt) => attempt.attemptNumber === attemptNumber)?.quality
             ?? baselineQualityAttempts.find((attempt) => attempt.attemptNumber === attemptNumber),
           candidateQuality: candidateAttempts.find((attempt) => attempt.attemptNumber === attemptNumber)?.quality
@@ -166,31 +182,30 @@ function summarizeComparison(
     };
   });
   const changeValues = cases.map((item) => item.changePercent).filter((value): value is number => value !== undefined);
-  const improvementValues = cases.map((item) => item.improvementPercent).filter((value): value is number => value !== undefined);
+  const improvementValues = cases.map((item) => item.gainPercent).filter((value): value is number => value !== undefined);
   const complete = changeValues.length === caseIds.length && improvementValues.length === caseIds.length && caseIds.length > 0 && caseIds.every((caseId) =>
     hasExpectedAttempts(baseline.cases.find((item) => item.caseId === caseId), metric, definition.trials)
     && hasExpectedAttempts(candidate.cases.find((item) => item.caseId === caseId), metric, definition.trials));
-  const averageImprovementPercent = complete ? reduce(improvementValues, 'mean') : undefined;
-  const minImprovementPercent = complete ? Math.min(...improvementValues) : undefined;
-  const maxImprovementPercent = complete ? Math.max(...improvementValues) : undefined;
+  const averageGainPercent = complete ? reduce(improvementValues, 'mean') : undefined;
+  const minGainPercent = complete ? Math.min(...improvementValues) : undefined;
+  const maxGainPercent = complete ? Math.max(...improvementValues) : undefined;
   return {
     averageChangePercent: complete ? reduce(changeValues, 'mean') : undefined,
     minChangePercent: complete ? Math.min(...changeValues) : undefined,
     maxChangePercent: complete ? Math.max(...changeValues) : undefined,
-    averageImprovementPercent,
-    minImprovementPercent,
-    maxImprovementPercent,
+    averageGainPercent,
+    minGainPercent,
+    maxGainPercent,
     comparedCases: changeValues.length,
     expectedCases: caseIds.length,
     cases,
   };
 }
 
-function buildArm(agentName: string, definition: BenchmarkDefinition, caseIds: string[], runs: readonly ScannedTaskRun[]): BenchmarkArmResult {
+function buildArm(agentName: string, definition: BenchmarkDefinition, caseIds: string[], runs: readonly ScannedTaskRun[], metricNames: readonly string[]): BenchmarkArmResult {
   const comparisonId = runs.find((run) => run.agentName === agentName)?.comparisonId ?? agentName;
   const armRuns = runs.filter((run) => caseIds.includes(run.caseId)
     && ((run.comparisonId ?? run.agentName) === comparisonId || run.agentName === agentName));
-  const metricNames = metricsFor(definition);
   const cases = caseIds.map((caseId) => {
     const observations: Record<string, number[]> = {};
     const attempts: Record<string, BenchmarkAttemptObservation[]> = {};
@@ -224,13 +239,14 @@ function buildArm(agentName: string, definition: BenchmarkDefinition, caseIds: s
   });
   const expectedRuns = caseIds.length * definition.trials;
   const actualRuns = armRuns.length;
-  const requiredMetrics = new Set([definition.objective.metric, ...definition.qualityGates.map((gate) => gate.metric)]);
+  const primaryMetric = definition.objective[0].metric;
+  const requiredMetrics = new Set([primaryMetric, ...definition.qualityGates.map((gate) => gate.metric)]);
   const qualityMetrics = new Set(definition.qualityGates.map((gate) => gate.metric));
   const complete = actualRuns === expectedRuns && cases.every((item) =>
     [...requiredMetrics].every((metric) => qualityMetrics.has(metric)
       ? hasQualityCoverage(item, metric, definition.trials)
       : hasExpectedAttempts(item, metric, definition.trials)));
-  const state: BenchmarkArmState = !complete ? 'incomplete' : gateResults.some((gate) => !gate.pass) ? 'quality regression' : values[definition.objective.metric] === undefined ? 'metric unavailable' : definition.trials < 2 ? 'inconclusive' : 'eligible';
+  const state: BenchmarkArmState = !complete ? 'incomplete' : gateResults.some((gate) => !gate.pass) ? 'quality regression' : values[primaryMetric] === undefined ? 'metric unavailable' : definition.trials < 2 ? 'inconclusive' : 'eligible';
   return { agentName, comparisonId, state, expectedRuns, actualRuns, missingRuns: Math.max(0, expectedRuns - actualRuns), cases, values, deltas: {}, gateResults };
 }
 
@@ -261,8 +277,12 @@ function qualityForRun(run: ScannedTaskRun): BenchmarkAttemptQuality {
   };
 }
 
-function metricsFor(definition: BenchmarkDefinition): string[] {
-  return [...new Set([definition.objective.metric, ...definition.secondaryMetrics, ...definition.qualityGates.map((gate) => gate.metric)])];
+function metricsFor(definition: BenchmarkDefinition, runs: readonly ScannedTaskRun[]): string[] {
+  return [...new Set([
+    ...definition.objective.map((objective) => objective.metric),
+    ...definition.qualityGates.map((gate) => gate.metric),
+    ...runs.flatMap((run) => Object.keys(run.metrics ?? {})),
+  ])];
 }
 
 function reduce(values: readonly number[], reducer: 'median' | 'mean'): number | undefined {
@@ -285,8 +305,8 @@ function percentageChange(
   return (candidate - baseline) / Math.abs(baseline) * 100;
 }
 
-function percentageImprovement(
-  goal: BenchmarkDefinition['objective']['goal'],
+function percentageGain(
+  goal: BenchmarkDefinition['objective'][number]['goal'],
   change: number | undefined,
 ): number | undefined {
   if (change === undefined) return undefined;

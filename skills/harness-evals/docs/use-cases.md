@@ -158,7 +158,7 @@ When a run fails, inspect artifacts before changing the case.
 Start with:
 
 ```bash
-harness-evals view --open
+harness-evals view --latest --open
 ```
 
 Then inspect the failing run directory:
@@ -181,7 +181,7 @@ Useful questions during triage:
 If you need a portable artifact for CI or sharing, export the latest report:
 
 ```bash
-harness-evals export --format json --output ./artifacts/latest-results.json
+harness-evals export --latest --format json --output ./artifacts/latest-results.json
 ```
 
 ## Build a focused smoke suite

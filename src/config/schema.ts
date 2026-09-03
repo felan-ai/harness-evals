@@ -257,6 +257,8 @@ export interface BenchmarkObjective extends BenchmarkMetricRef {
   goal: BenchmarkGoal;
 }
 
+export type BenchmarkObjectives = BenchmarkObjective[];
+
 export interface BenchmarkQualityGate extends BenchmarkMetricRef {
   min?: number;
   max?: number;
@@ -275,9 +277,8 @@ export interface BenchmarkDefinition {
   arms: BenchmarkArms;
   trials: number;
   qualityGates: BenchmarkQualityGate[];
-  objective: BenchmarkObjective;
+  objective: BenchmarkObjectives;
   aggregation: BenchmarkAggregation;
-  secondaryMetrics: string[];
 }
 
 export interface BenchmarkRunMetadata {

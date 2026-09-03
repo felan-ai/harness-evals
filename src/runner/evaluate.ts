@@ -515,6 +515,7 @@ async function executeScenarioStep(input: ExecuteScenarioStepInput): Promise<Exe
       stdout,
       stderr,
       plan,
+      configDir: input.context.configDir,
       stdoutPath: docker.stdoutPath,
       stdoutTruncated: docker.stdoutTruncated,
     });

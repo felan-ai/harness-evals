@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runHarness } from '../src/runner/evaluate.js';
 import { createBatchInfo } from '../src/runner/batch.js';
-import { dedupeNewestValid, filterTaskRuns, scanWorkspaceRuns, type ScannedTaskRun } from '../src/visualization/scan.js';
+import { filterTaskRuns, scanWorkspaceRuns, type ScannedTaskRun } from '../src/visualization/scan.js';
 
 const tempDirs: string[] = [];
 
@@ -235,34 +235,15 @@ test('scanWorkspaceRuns reads modern, legacy, corrupt, and incomplete run dirs',
 function fakeRun(overrides: Partial<ScannedTaskRun>): ScannedTaskRun {
   return {
     runId: 'case-x-agent-2026-06-10T10-00-00-000Z-0',
-    runDir: '/tmp/x',
     batchId: 'b1',
     batchSynthetic: false,
     caseId: 'case-x',
     agentName: 'agent',
     status: 'passed',
     pass: true,
-    hasIndexHtml: false,
     ...overrides,
   };
 }
-
-test('dedupeNewestValid prefers graded verdicts over newer errors, then recency', async () => {
-  const oldFailed = fakeRun({ runId: 'a', startedAt: '2026-06-10T10:00:00.000Z', status: 'failed', pass: false });
-  const newerError = fakeRun({ runId: 'b', startedAt: '2026-06-10T12:00:00.000Z', status: 'error', pass: false });
-  expect(dedupeNewestValid([oldFailed, newerError])).toEqual([oldFailed]);
-
-  const newerPassed = fakeRun({ runId: 'c', startedAt: '2026-06-10T13:00:00.000Z', status: 'passed', pass: true });
-  expect(dedupeNewestValid([oldFailed, newerPassed])).toEqual([newerPassed]);
-
-  const olderError = fakeRun({ runId: 'd', startedAt: '2026-06-10T09:00:00.000Z', status: 'error', pass: false });
-  expect(dedupeNewestValid([olderError, newerError])).toEqual([newerError]);
-
-  // Distinct attempts are kept apart.
-  const attempt1 = fakeRun({ runId: 'e', attemptNumber: 1 });
-  const attempt2 = fakeRun({ runId: 'f', attemptNumber: 2 });
-  expect(dedupeNewestValid([attempt1, attempt2])).toHaveLength(2);
-});
 
 test('filterTaskRuns filters by batch, agent, suite, case, and status', () => {
   const runs = [
@@ -275,61 +256,6 @@ test('filterTaskRuns filters by batch, agent, suite, case, and status', () => {
   expect(filterTaskRuns(runs, { cases: ['c2'] }).map((run) => run.runId)).toEqual(['2']);
   expect(filterTaskRuns(runs, { statuses: ['failed'] }).map((run) => run.runId)).toEqual(['2']);
   expect(filterTaskRuns(runs, {})).toHaveLength(2);
-});
-
-test('buildAggregateData strips runDir, links run reports, and keeps batch order', async () => {
-  const { buildAggregateData } = await import('../src/visualization/aggregate/data.js');
-  const scan = {
-    taskRuns: [
-      fakeRun({ runId: 'r1', runDir: '/ws/.harness-evals/runs/r1', hasIndexHtml: true }),
-      fakeRun({ runId: 'r2', runDir: '/ws/.harness-evals/runs/r2', hasIndexHtml: false }),
-    ],
-    batches: [
-      { batchId: 'b2', synthetic: false, runCount: 1, startedAt: '2026-06-11T00:00:00.000Z' },
-      { batchId: 'b1', synthetic: true, runCount: 1 },
-    ],
-    warnings: ['warned'],
-  };
-  const data = buildAggregateData({
-    scan,
-    workspace: '/ws',
-    reportDir: '/ws/.harness-evals/output/report',
-    initialState: { batchIds: ['b2'], disagreementsOnly: true },
-  });
-
-  expect(data.taskRuns[0]?.indexHref).toBe('../../runs/r1/index.html');
-  expect(data.taskRuns[1]?.indexHref).toBeUndefined();
-  expect((data.taskRuns[0] as Record<string, unknown>).runDir).toBeUndefined();
-  expect(data.batches.map((batch) => batch.batchId)).toEqual(['b2', 'b1']);
-  expect(data.initialState?.disagreementsOnly).toBe(true);
-  expect(data.warnings).toEqual(['warned']);
-});
-
-test('renderAggregateHtml embeds parseable data, charts, and the client renderer', async () => {
-  const { buildAggregateData } = await import('../src/visualization/aggregate/data.js');
-  const { renderAggregateHtml } = await import('../src/visualization/aggregate/render.js');
-  const scan = {
-    taskRuns: [fakeRun({ runId: 'r1', runDir: '/ws/runs/r1', hasIndexHtml: false, caseId: 'evil</script><b>' })],
-    batches: [{ batchId: 'b1', synthetic: false, runCount: 1 }],
-    warnings: [],
-  };
-  const html = renderAggregateHtml(buildAggregateData({ scan, workspace: '/ws', reportDir: '/ws/report' }));
-
-  // Embedded data must round-trip even with "</script>" inside a field.
-  const match = /<script type="application\/json" id="report-data">([\s\S]*?)<\/script>/.exec(html);
-  expect(match).not.toBeNull();
-  const parsed = JSON.parse(match![1] ?? '') as { taskRuns: Array<{ caseId: string }> };
-  expect(parsed.taskRuns[0]?.caseId).toBe('evil</script><b>');
-
-  for (const id of ['controls', 'kpi-cards', 'solve-rate-chart', 'efficiency-chart', 'matrix-table', 'duration-strip', 'cost-strip', 'token-bars', 'report-data']) {
-    expect(html).toContain(`id="${id}"`);
-  }
-  for (const fn of ['function wilson', 'function dedupe', 'function applyFilters', 'function aggregateByAgent', 'function renderAll', 'function renderMatrix', 'function renderEfficiency', 'function renderTokens']) {
-    expect(html).toContain(fn);
-  }
-  expect(html).toContain('Instrument+Serif');
-  expect(html).toContain('--accent: #eb6c36');
-  expect(html).toContain('@media print');
 });
 
 test('scanWorkspaceRuns prefers declared agent identity and keeps it on runs that never billed', async () => {
@@ -383,28 +309,7 @@ test('scanWorkspaceRuns prefers declared agent identity and keeps it on runs tha
   expect(unbilled?.packageVersion).toBe('0.19.2');
 });
 
-test('renderAggregateCsv emits one row per task run with token columns', async () => {
-  const { renderAggregateCsv } = await import('../src/visualization/aggregate/csv.js');
-  const csv = renderAggregateCsv([
-    {
-      ...fakeRun({ runId: 'r1', suite: 'pilot, special' }),
-      runDir: undefined as never,
-      models: ['m1', 'm2'],
-      model: 'm1',
-      thinking: 'max',
-      packageVersion: '0.19.2',
-      cost: { totalCost: 1.5, currency: 'USD', inputTokens: 10, cachedInputTokens: 100, outputTokens: 5, totalTokens: 115, requests: 3 },
-    } as never,
-  ]);
-  const [header, row] = csv.split('\n');
-  expect(header).toBe('batchId,caseId,suite,agentName,provider,models,attemptNumber,status,pass,score,durationMs,cost,currency,inputTokens,cachedInputTokens,outputTokens,totalTokens,requests,startedAt,runId,model,thinking,packageVersion');
-  expect(row).toContain('"pilot, special"');
-  expect(row).toContain('m1+m2');
-  expect(row).toEndWith('r1,m1,max,0.19.2');
-  expect(row).toContain('1.5,USD,10,100,5,115,3');
-});
-
-test('CLI aggregate view and export work over a fixture workspace', async () => {
+test('CLI default view writes benchmarks and bare export is rejected', async () => {
   const root = await tempRoot();
   const cliPath = join(import.meta.dir, '..', 'src', 'cli.ts');
   const runsRoot = join(root, '.harness-evals', 'runs');
@@ -424,29 +329,14 @@ test('CLI aggregate view and export work over a fixture workspace', async () => 
 
   const view = Bun.spawnSync(['bun', cliPath, 'view', '--no-open', '--config', join(root, 'harness-evals.yaml')], { cwd: root });
   expect(view.exitCode).toBe(0);
-  const reportPath = new TextDecoder().decode(view.stdout).trim();
-  expect(reportPath).toBe(join(root, '.harness-evals', 'output', 'report', 'index.html'));
-  const html = await readFile(reportPath, 'utf8');
-  expect(html).toContain('id="report-data"');
-  expect(html).toContain('20260611-010000-aaaa');
-  expect(html).toContain('legacy-2026-06-09');
+  const benchmarkPath = join(root, '.harness-evals', 'output', 'benchmarks', 'index.html');
+  expect(new TextDecoder().decode(view.stdout).trim()).toBe(benchmarkPath);
+  expect(await readFile(benchmarkPath, 'utf8')).toContain('No benchmarks.');
+  expect(await Bun.file(join(root, '.harness-evals', 'output', 'report', 'index.html')).exists()).toBe(false);
 
-  // Default export = latest batch only → 1 row.
-  const latestCsv = Bun.spawnSync(['bun', cliPath, 'export', '--format', 'csv', '--output', join(root, 'latest.csv'), '--config', join(root, 'harness-evals.yaml')], { cwd: root });
-  expect(latestCsv.exitCode).toBe(0);
-  const latestRows = (await readFile(join(root, 'latest.csv'), 'utf8')).trim().split('\n');
-  expect(latestRows).toHaveLength(2);
-  expect(latestRows[1]).toContain('case-a');
-
-  // --batch all → both runs.
-  const allCsv = Bun.spawnSync(['bun', cliPath, 'export', '--batch', 'all', '--format', 'csv', '--output', join(root, 'all.csv'), '--config', join(root, 'harness-evals.yaml')], { cwd: root });
-  expect(allCsv.exitCode).toBe(0);
-  expect((await readFile(join(root, 'all.csv'), 'utf8')).trim().split('\n')).toHaveLength(3);
-
-  // Agent filter narrows server-side.
-  const piCsv = Bun.spawnSync(['bun', cliPath, 'export', '--batch', 'all', '--agents', 'pi', '--format', 'csv', '--output', join(root, 'pi.csv'), '--config', join(root, 'harness-evals.yaml')], { cwd: root });
-  expect(piCsv.exitCode).toBe(0);
-  const piRows = (await readFile(join(root, 'pi.csv'), 'utf8')).trim().split('\n');
-  expect(piRows).toHaveLength(2);
-  expect(piRows[1]).toContain('case-b');
+  const exportPath = join(root, 'aggregate.html');
+  const exportResult = Bun.spawnSync(['bun', cliPath, 'export', '--format', 'html', '--output', exportPath, '--config', join(root, 'harness-evals.yaml')], { cwd: root });
+  expect(exportResult.exitCode).toBe(1);
+  expect(new TextDecoder().decode(exportResult.stderr)).toContain('requires --benchmark <id>, --run <id>, or --latest');
+  expect(await Bun.file(exportPath).exists()).toBe(false);
 });

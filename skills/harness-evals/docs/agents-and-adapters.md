@@ -97,7 +97,7 @@ artifacts. No configuration is needed:
 - `codex` defaults to `codex exec --json` and sums token usage from the JSONL events
   (tokens only; no dollar cost under ChatGPT auth).
 - `pi` accumulates usage and cost from its assistant message events.
-- `felan` emits the same Pi-compatible JSONL events and uses the shared parser.
+- `felan` emits the same Pi-compatible JSONL events and uses the shared parser. It also adds completed direct and nested child-session usage from the current run's copied Felan storage when those files are available.
 
 The json defaults apply only when the agent runs the real CLI binary; agents that
 override `command:` keep plain output. Set `outputFormat: text` to opt out (final
@@ -230,6 +230,13 @@ Felan JSON output is Pi-compatible JSONL, so the adapter reports assistant
 output, tool calls/results, errors, token classes, requests, and available cost
 through the shared Pi parser. API-key environment names are forwarded only when
 available and are redacted from run artifacts.
+
+When running the real Felan CLI in JSON mode, total cost includes the root
+session and child sessions created by the local subagent host. Child sessions
+are scoped to the root session for the current run, counted once, and merged by
+provider/model. This requires completed child JSONL artifacts; plain-text mode,
+custom commands, unavailable session files, and other adapters retain their
+normal adapter-specific accounting behavior.
 
 #### Felan subscription OAuth
 

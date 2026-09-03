@@ -19,14 +19,13 @@ The first implementation provides file-based reports similar to promptfoo's HTML
 - A static `results.html` table for the latest run.
 - A machine-readable `results.json` and spreadsheet-friendly `results.csv`.
 - A per-run `index.html` with detailed test-case/agent/step pages or sections.
-- A `harness-evals view` command that opens the latest report or serves a local viewer.
+- A `harness-evals view` command that generates the benchmark landing page or opens a stored run report.
 
 The reports emphasize comparison. The per-run/latest HTML groups results by
 test case, renders selected agent/model configurations as columns, and renders
 status, score, duration, requests, token usage, cost, assertions, result, and
-actions as metric rows. The workspace aggregate HTML retains its cross-case
-agent/model matrix. Both summarize pass/fail/error, score, duration, cost,
-token usage, assertion failures, and links to details.
+actions as metric rows. These surfaces summarize pass/fail/error, score, duration,
+cost, token usage, assertion failures, and links to details.
 
 Benchmark reports additionally retain a compact outcome for every selected case
 and attempt: status, pass flag, bounded failure categories, failed required
@@ -35,11 +34,21 @@ in test disclosures and attempt rows so an aggregate quality regression can be
 traced without embedding raw errors, prompts, logs, commands, or verifier
 output.
 
-Benchmark comparisons preserve both meanings of percentage movement: raw
-`changePercent` is `(candidate - baseline) / abs(baseline)`, while
-`improvementPercent` interprets that movement using the objective's
-`minimize`/`maximize` goal. User-facing reports label and display the raw
-change.
+Benchmark definitions use an ordered `objective` array with one primary and an
+optional secondary `{ metric, goal }`. Comparisons preserve both meanings of
+percentage movement: raw `changePercent` is `(candidate - baseline) /
+abs(baseline)`, while positive `gainPercent` interprets that movement using
+each objective's `minimize`/`maximize` goal. For objective percentages, HTML
+presents only the signed, goal-aware value; structured JSON and CSV retain both
+percentage values. Every numeric metric persisted by the runs appears once in the benchmark
+metrics matrix with metrics as rows, benchmark arms as columns, and a separate
+absolute delta column.
+
+The benchmark index shows the primary objective as a bar with its case range
+and an adjacent goal-aware percentage. It does not repeat that range in a text
+column. When configured, the secondary objective appears as a plain-language
+directional comparison such as `40.5% fewer prompt tokens`; its semantic color
+uses the secondary objective's goal and the benchmark quality state.
 
 Public archive reports use a separate case-centric layout: suites contain
 cases, and each case shows only the comparison identities that participated in
@@ -177,16 +186,16 @@ The static HTML report can reference relative artifact files already written by 
 ### CLI contract
 
 ```text
-harness-evals view [--run <run-id>] [--latest] [--open] [--port <n>]
-harness-evals export [--run <run-id>] --format html|json|csv --output <path>
+harness-evals view [--benchmark <id|all>] [--run <run-id>] [--latest] [--open] [--port <n>]
+harness-evals export --benchmark <id> | --run <run-id> | --latest --format html|json|csv --output <path>
 ```
 
 Rules:
 
-1. `view` defaults to the latest report.
+1. `view` defaults to the combined benchmark landing page; `--latest` and `--run` locate stored reports.
 2. `--open` opens the generated HTML report in the system browser when available.
 3. `--port` serves a local read-only viewer for historical browsing when implemented.
-4. `export` regenerates a report from file-provider records or current run records.
+4. `export` requires an explicit benchmark, run, or latest report target.
 
 ## 3. Lifecycle / State Transitions
 

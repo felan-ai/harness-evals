@@ -16,6 +16,7 @@ import type {
   BenchmarkAggregation,
   BenchmarkDefinition,
   BenchmarkGoal,
+  BenchmarkObjective,
   BenchmarkQualityGate,
   BenchmarkTrialReducer,
   HarnessConfig,
@@ -166,7 +167,7 @@ function readBenchmarks(value: unknown): Record<string, BenchmarkDefinition> | u
     readComparisonId(id, `benchmarks.${id}`);
     if (!isRecord(raw)) throw new Error(`benchmarks.${id} must be an object`);
     const field = `benchmarks.${id}`;
-    assertKnownKeys(raw, ['revision', 'label', 'description', 'select', 'arms', 'trials', 'qualityGates', 'objective', 'aggregation', 'secondaryMetrics'], field);
+    assertKnownKeys(raw, ['revision', 'label', 'description', 'select', 'arms', 'trials', 'qualityGates', 'objective', 'aggregation'], field);
     benchmarks[id] = {
       revision: readOptionalPositiveInteger(raw.revision, `${field}.revision`) ?? 1,
       label: readRequiredString(raw.label, `${field}.label`),
@@ -175,9 +176,8 @@ function readBenchmarks(value: unknown): Record<string, BenchmarkDefinition> | u
       arms: readBenchmarkArms(raw.arms, `${field}.arms`),
       trials: readOptionalPositiveInteger(raw.trials, `${field}.trials`) ?? 1,
       qualityGates: readBenchmarkQualityGates(raw.qualityGates, `${field}.qualityGates`),
-      objective: readBenchmarkObjective(raw.objective, `${field}.objective`),
+      objective: readBenchmarkObjectives(raw.objective, `${field}.objective`),
       aggregation: readBenchmarkAggregation(raw.aggregation, `${field}.aggregation`),
-      secondaryMetrics: readMetricNames(raw.secondaryMetrics, `${field}.secondaryMetrics`),
     };
   }
   return benchmarks;
@@ -203,7 +203,19 @@ function readBenchmarkArms(value: unknown, field: string): BenchmarkDefinition['
   return { baseline, candidate };
 }
 
-function readBenchmarkObjective(value: unknown, field: string): BenchmarkDefinition['objective'] {
+function readBenchmarkObjectives(value: unknown, field: string): BenchmarkDefinition['objective'] {
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
+  if (value.length < 1 || value.length > 2) {
+    throw new Error(`${field} must contain one primary objective and at most one secondary objective`);
+  }
+  const objectives = value.map((entry, index) => readBenchmarkObjective(entry, `${field}[${index}]`));
+  if (new Set(objectives.map((objective) => objective.metric)).size !== objectives.length) {
+    throw new Error(`${field} metrics must be unique`);
+  }
+  return objectives as BenchmarkDefinition['objective'];
+}
+
+function readBenchmarkObjective(value: unknown, field: string): BenchmarkObjective {
   if (!isRecord(value)) throw new Error(`${field} must be an object`);
   assertKnownKeys(value, ['metric', 'goal'], field);
   const goal = readRequiredString(value.goal, `${field}.goal`);
@@ -237,14 +249,6 @@ function readBenchmarkAggregation(value: unknown, field: string): BenchmarkAggre
   return { trials: trials as BenchmarkTrialReducer, cases: 'macroMean' };
 }
 
-function readMetricNames(value: unknown, field: string): string[] {
-  if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
-  const metrics = value.map((entry, index) => readMetricName(entry, `${field}[${index}]`));
-  assertUniqueNonEmpty(metrics, field);
-  return metrics;
-}
-
 function readMetricName(value: unknown, field: string): string {
   const metric = readRequiredString(value, field);
   if (!BENCHMARK_METRIC_PATTERN.test(metric)) throw new Error(`${field} must be a dotted metric name`);
@@ -275,9 +279,6 @@ function validateBenchmarkReferences(
     const comparisonIds = armNames.map((agentName) => agents[agentName].comparisonId ?? agentName);
     if (new Set(comparisonIds).size !== comparisonIds.length) {
       throw new Error(`benchmarks.${id}.arms must resolve to distinct comparisonId values`);
-    }
-    if (benchmark.secondaryMetrics.includes(benchmark.objective.metric)) {
-      throw new Error(`benchmarks.${id}.secondaryMetrics must not repeat the objective metric`);
     }
   }
 }
