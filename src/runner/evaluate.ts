@@ -1092,7 +1092,13 @@ function buildTestRunResult(input: {
       })),
       workspace: input.workspace,
     }, input.redactions) as Record<string, unknown>,
-    metrics: metricsForRun({ durationMs: input.durationMs, pass: status === 'passed', qualityValid: status !== 'invalid', cost }),
+    metrics: metricsForRun({
+      durationMs: input.durationMs,
+      pass: status === 'passed',
+      qualityValid: status !== 'invalid',
+      cost,
+      stepDurationsMs: input.steps.map((step) => step.durationMs),
+    }),
   };
 }
 

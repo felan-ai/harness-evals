@@ -632,7 +632,13 @@ function buildDerivedResult(
   const assertions = steps.flatMap((step) => step.assertions);
   const score = buildScenarioScoreSummary(config.scoring, steps, verifier);
   const durationMs = Math.max(0, source.durationMs - (source.verifier?.durationMs ?? 0) + (verifier?.durationMs ?? 0));
-  const metrics = metricsForRun({ durationMs, pass, qualityValid: status !== 'invalid', cost: source.cost });
+  const metrics = metricsForRun({
+    durationMs,
+    pass,
+    qualityValid: status !== 'invalid',
+    cost: source.cost,
+    stepDurationsMs: steps.map((step) => step.durationMs),
+  });
   const stepError = steps.find((step) => step.status === 'error' || step.status === 'timeout')?.error;
   const error = stepError ?? verifier?.error;
   const provenance = buildRunProvenance(prepared, reprocessedAt);

@@ -11,11 +11,31 @@ export function metricsForStep(input: { durationMs: number; pass: boolean; cost:
   return metrics;
 }
 
-export function metricsForRun(input: { durationMs: number; pass: boolean; cost: CostSummary; qualityValid?: boolean }): NumericMetrics {
+export function metricsForRun(input: {
+  durationMs: number;
+  pass: boolean;
+  cost: CostSummary;
+  qualityValid?: boolean;
+  stepDurationsMs?: number[];
+}): NumericMetrics {
+  // duration.ms is whole-run wall clock: workspace setup, image probes and the
+  // verifier are all inside it. duration.stepsMs sums the agent steps only, so a
+  // benchmark can target agent speed without setup variance swamping the signal.
   const metrics: NumericMetrics = { 'duration.ms': input.durationMs };
+  add(metrics, 'duration.stepsMs', sumDurations(input.stepDurationsMs));
   if (input.qualityValid !== false) metrics['quality.passRate'] = input.pass ? 1 : 0;
   addCostMetrics(metrics, input.cost);
   return metrics;
+}
+
+function sumDurations(durations: number[] | undefined): number | undefined {
+  if (!durations?.length) return undefined;
+  let total = 0;
+  for (const duration of durations) {
+    if (!Number.isFinite(duration)) return undefined;
+    total += duration;
+  }
+  return total;
 }
 
 function addCostMetrics(metrics: NumericMetrics, cost: CostReport | CostSummary): void {

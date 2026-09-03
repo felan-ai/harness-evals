@@ -26,7 +26,7 @@ import { createOutputProviderRegistry } from '../src/output/registry.js';
 import type { OutputProvider } from '../src/output/types.js';
 import { buildRunReport } from '../src/visualization/report.js';
 import { renderReport } from '../src/visualization/render.js';
-import { metricsForStep } from '../src/metrics.js';
+import { metricsForRun, metricsForStep } from '../src/metrics.js';
 import { buildCostSummary } from '../src/cost/rollup.js';
 
 const tempDirs: string[] = [];
@@ -1606,6 +1606,25 @@ test('pi adapter keeps ambiguous provider and model names in separate usage buck
     expect.objectContaining({ provider: 'ab', model: 'c', requests: 1 }),
     expect.objectContaining({ provider: 'a', model: 'bc', requests: 1 }),
   ]);
+});
+
+test('run metrics report agent step time separately from whole-run wall clock', () => {
+  const cost = { available: true, totalCost: 0.25, usage: [] };
+
+  const metrics = metricsForRun({ durationMs: 121756, pass: true, cost, stepDurationsMs: [78116] });
+  expect(metrics['duration.ms']).toBe(121756);
+  expect(metrics['duration.stepsMs']).toBe(78116);
+
+  const multiStep = metricsForRun({ durationMs: 500, pass: true, cost, stepDurationsMs: [100, 250] });
+  expect(multiStep['duration.stepsMs']).toBe(350);
+});
+
+test('run metrics omit step time when no step durations are available', () => {
+  const cost = { available: true, totalCost: 0.25, usage: [] };
+
+  expect(metricsForRun({ durationMs: 42, pass: false, cost })).not.toHaveProperty('duration.stepsMs');
+  expect(metricsForRun({ durationMs: 42, pass: false, cost, stepDurationsMs: [] })).not.toHaveProperty('duration.stepsMs');
+  expect(metricsForRun({ durationMs: 42, pass: false, cost, stepDurationsMs: [Number.NaN] })).not.toHaveProperty('duration.stepsMs');
 });
 
 test('benchmark metrics use provider tokens and keep cache usage separate', () => {
