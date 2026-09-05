@@ -67,6 +67,10 @@ export interface BenchmarkComparisonSummary {
   averageGainPercent?: number;
   minGainPercent?: number;
   maxGainPercent?: number;
+  baselineReducedSum?: number;
+  candidateReducedSum?: number;
+  aggregateChangePercent?: number;
+  aggregateGainPercent?: number;
   comparedCases: number;
   expectedCases: number;
   cases: BenchmarkCaseComparison[];
@@ -183,23 +187,62 @@ function summarizeComparison(
   });
   const changeValues = cases.map((item) => item.changePercent).filter((value): value is number => value !== undefined);
   const improvementValues = cases.map((item) => item.gainPercent).filter((value): value is number => value !== undefined);
-  const complete = changeValues.length === caseIds.length && improvementValues.length === caseIds.length && caseIds.length > 0 && caseIds.every((caseId) =>
+  const completeCoverage = caseIds.length > 0 && caseIds.every((caseId) =>
     hasExpectedAttempts(baseline.cases.find((item) => item.caseId === caseId), metric, definition.trials)
     && hasExpectedAttempts(candidate.cases.find((item) => item.caseId === caseId), metric, definition.trials));
-  const averageGainPercent = complete ? reduce(improvementValues, 'mean') : undefined;
-  const minGainPercent = complete ? Math.min(...improvementValues) : undefined;
-  const maxGainPercent = complete ? Math.max(...improvementValues) : undefined;
+  const completeCaseComparisons = completeCoverage && changeValues.length === caseIds.length && improvementValues.length === caseIds.length;
+  const averageGainPercent = completeCaseComparisons ? reduce(improvementValues, 'mean') : undefined;
+  const minGainPercent = completeCaseComparisons ? Math.min(...improvementValues) : undefined;
+  const maxGainPercent = completeCaseComparisons ? Math.max(...improvementValues) : undefined;
+  const aggregate = definition.aggregation.cases === 'ratioOfReducedSums'
+    ? summarizeReducedSums(completeCoverage, objective.goal, metric, caseIds, baseline, candidate)
+    : {};
   return {
-    averageChangePercent: complete ? reduce(changeValues, 'mean') : undefined,
-    minChangePercent: complete ? Math.min(...changeValues) : undefined,
-    maxChangePercent: complete ? Math.max(...changeValues) : undefined,
+    averageChangePercent: completeCaseComparisons ? reduce(changeValues, 'mean') : undefined,
+    minChangePercent: completeCaseComparisons ? Math.min(...changeValues) : undefined,
+    maxChangePercent: completeCaseComparisons ? Math.max(...changeValues) : undefined,
     averageGainPercent,
     minGainPercent,
     maxGainPercent,
+    ...aggregate,
     comparedCases: changeValues.length,
     expectedCases: caseIds.length,
     cases,
   };
+}
+
+function summarizeReducedSums(
+  complete: boolean,
+  goal: BenchmarkDefinition['objective'][number]['goal'],
+  metric: string,
+  caseIds: readonly string[],
+  baseline: BenchmarkArmResult,
+  candidate: BenchmarkArmResult,
+): Pick<BenchmarkComparisonSummary, 'baselineReducedSum' | 'candidateReducedSum' | 'aggregateChangePercent' | 'aggregateGainPercent'> {
+  if (!complete) {
+    return {
+      baselineReducedSum: undefined,
+      candidateReducedSum: undefined,
+      aggregateChangePercent: undefined,
+      aggregateGainPercent: undefined,
+    };
+  }
+  const baselineReducedSum = sumCaseValues(baseline, caseIds, metric);
+  const candidateReducedSum = sumCaseValues(candidate, caseIds, metric);
+  const aggregateChangePercent = percentageChange(baselineReducedSum, candidateReducedSum);
+  return {
+    baselineReducedSum,
+    candidateReducedSum,
+    aggregateChangePercent,
+    aggregateGainPercent: percentageGain(goal, aggregateChangePercent),
+  };
+}
+
+function sumCaseValues(arm: BenchmarkArmResult, caseIds: readonly string[], metric: string): number | undefined {
+  const values = caseIds.map((caseId) => arm.cases.find((item) => item.caseId === caseId)?.values[metric]);
+  const definedValues = values.filter((value): value is number => value !== undefined);
+  if (definedValues.length !== values.length) return undefined;
+  return definedValues.reduce((sum, value) => sum + value, 0);
 }
 
 function buildArm(agentName: string, definition: BenchmarkDefinition, caseIds: string[], runs: readonly ScannedTaskRun[], metricNames: readonly string[]): BenchmarkArmResult {

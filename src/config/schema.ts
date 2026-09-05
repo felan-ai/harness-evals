@@ -237,7 +237,7 @@ export type ProjectScoringConfig = Partial<Record<ScoreType, ScoreTypeConfig | M
 
 export type BenchmarkGoal = 'minimize' | 'maximize';
 export type BenchmarkTrialReducer = 'median' | 'mean';
-export type BenchmarkCaseReducer = 'macroMean';
+export type BenchmarkCaseReducer = 'macroMean' | 'ratioOfReducedSums';
 
 export interface BenchmarkSelector {
   suites?: string[];

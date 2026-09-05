@@ -80,9 +80,115 @@ test('benchmark analyzer reduces trials, macro-averages cases, and computes base
   expect(detailHtml).not.toContain('>Assessment<');
   expect(detailHtml).not.toContain('<caption>Attempts for');
   expect(detailHtml).not.toContain('<th scope="col">Attempt</th>');
-  expect(renderBenchmarkCsv(report)).toContain('changePercent,gainPercent,objectiveRole,objectiveGoal,averageChangePercent,minChangePercent,maxChangePercent');
+  expect(renderBenchmarkCsv(report)).toContain('changePercent,gainPercent,objectiveRole,objectiveGoal,caseReducer,averageChangePercent,minChangePercent,maxChangePercent');
     expect(renderBenchmarkJson(report)).toContain('"comparison"');
   expect(renderBenchmarkJson(report)).not.toContain('"gain"');
+});
+
+test('ratio of reduced sums keeps macro diagnostics and uses asymmetric reduced case totals', () => {
+  const ratioDefinition: BenchmarkDefinition = {
+    ...definition,
+    aggregation: { trials: 'median', cases: 'ratioOfReducedSums' },
+  };
+  const runs = [
+    ...[1, 3, 5].map((cost, index) => run('base', 'one', index + 1, cost)),
+    ...[100, 100, 110].map((cost, index) => run('base', 'two', index + 1, cost)),
+    ...[2, 4, 6].map((cost, index) => run('candidate', 'one', index + 1, cost)),
+    ...[80, 80, 90].map((cost, index) => run('candidate', 'two', index + 1, cost)),
+  ];
+
+  const report = analyzeBenchmark({ id: 'cost-ratio', definition: ratioDefinition, runs });
+
+  expect(report.baseline.values['cost.total']).toBe(51.5);
+  expect(report.candidate.values['cost.total']).toBe(42);
+  expect(report.candidate.deltas['cost.total']).toBe(-9.5);
+  expect(report.comparison).toMatchObject({
+    baselineReducedSum: 103,
+    candidateReducedSum: 84,
+    aggregateChangePercent: (84 - 103) / 103 * 100,
+    aggregateGainPercent: (103 - 84) / 103 * 100,
+  });
+  expect(report.comparison.averageGainPercent).toBeCloseTo(((-100 / 3) + 20) / 2, 12);
+  expect(report.comparison.cases.map((item) => [item.baselineValue, item.candidateValue])).toEqual([
+    [3, 4],
+    [100, 80],
+  ]);
+  expect(report.comparison.cases[0]?.gainPercent).toBeCloseTo(-100 / 3, 12);
+  expect(report.comparison.cases[1]?.gainPercent).toBe(20);
+
+  const json = renderBenchmarkJson(report);
+  expect(json).toContain('"baselineReducedSum": 103');
+  expect(json).toContain('"aggregateGainPercent"');
+  const csv = renderBenchmarkCsv(report);
+  expect(csv.split('\n', 1)[0]).toEndWith('baselineReducedSum,candidateReducedSum,aggregateChangePercent,aggregateGainPercent');
+  expect(csv).toContain(',103,84,-18.446601941747574,18.446601941747574');
+  const html = renderBenchmarkHtml(report);
+  expect(html).toContain('Ratio of reduced sums');
+  expect(html).toContain('Aggregate outcome');
+  expect(html).toContain('Case range (macro mean)');
+});
+
+test('ratio of reduced sums applies the configured mean or median trial reducer', () => {
+  const values = (trials: 'mean' | 'median') => analyzeBenchmark({
+    id: `cost-${trials}`,
+    definition: { ...definition, aggregation: { trials, cases: 'ratioOfReducedSums' } },
+    runs: [
+      ...[1, 9, 9].map((cost, index) => run('base', 'one', index + 1, cost)),
+      ...[3, 3, 3].map((cost, index) => run('base', 'two', index + 1, cost)),
+      ...[2, 8, 8].map((cost, index) => run('candidate', 'one', index + 1, cost)),
+      ...[4, 4, 4].map((cost, index) => run('candidate', 'two', index + 1, cost)),
+    ],
+  });
+
+  expect(values('mean').comparison.baselineReducedSum).toBe(3 + 19 / 3);
+  expect(values('mean').comparison.candidateReducedSum).toBe(10);
+  expect(values('median').comparison.baselineReducedSum).toBe(12);
+  expect(values('median').comparison.candidateReducedSum).toBe(12);
+});
+
+test('ratio of reduced sums handles maximize goals, zero totals, and incomplete coverage', () => {
+  const maximizeDefinition: BenchmarkDefinition = {
+    ...definition,
+    trials: 1,
+    objective: [{ metric: 'cost.total', goal: 'maximize' }],
+    aggregation: { trials: 'median', cases: 'ratioOfReducedSums' },
+  };
+  const maximize = analyzeBenchmark({
+    id: 'maximize',
+    definition: maximizeDefinition,
+    runs: [run('base', 'one', 1, 10), run('base', 'two', 1, 20), run('candidate', 'one', 1, 15), run('candidate', 'two', 1, 30)],
+  });
+  expect(maximize.comparison).toMatchObject({ baselineReducedSum: 30, candidateReducedSum: 45, aggregateChangePercent: 50, aggregateGainPercent: 50 });
+
+  const zero = analyzeBenchmark({
+    id: 'zero',
+    definition: { ...definition, trials: 1, aggregation: { trials: 'median', cases: 'ratioOfReducedSums' } },
+    runs: [run('base', 'one', 1, -1), run('base', 'two', 1, 1), run('candidate', 'one', 1, -2), run('candidate', 'two', 1, 2)],
+  });
+  expect(zero.comparison).toMatchObject({ baselineReducedSum: 0, candidateReducedSum: 0 });
+  expect(zero.comparison.aggregateChangePercent).toBeUndefined();
+  expect(zero.comparison.aggregateGainPercent).toBeUndefined();
+  expect(renderBenchmarkHtml(zero)).toContain('Aggregate outcome —');
+
+  const zeroCase = analyzeBenchmark({
+    id: 'zero-case',
+    definition: { ...definition, trials: 1, aggregation: { trials: 'median', cases: 'ratioOfReducedSums' } },
+    runs: [run('base', 'one', 1, 0), run('base', 'two', 1, 2), run('candidate', 'one', 1, 1), run('candidate', 'two', 1, 1)],
+  });
+  expect(zeroCase.comparison).toMatchObject({ baselineReducedSum: 2, candidateReducedSum: 2, aggregateChangePercent: 0 });
+  expect(zeroCase.comparison.aggregateGainPercent).toBeCloseTo(0, 12);
+  expect(zeroCase.comparison.cases[0]?.changePercent).toBeUndefined();
+
+  const incomplete = analyzeBenchmark({
+    id: 'incomplete',
+    definition: { ...definition, aggregation: { trials: 'median', cases: 'ratioOfReducedSums' } },
+    runs: [run('base', 'one', 1, 1), run('base', 'one', 2, 1), run('candidate', 'one', 1, 1)],
+  });
+  expect(incomplete.baseline.state).toBe('incomplete');
+  expect(incomplete.candidate.state).toBe('incomplete');
+  expect(incomplete.comparison.baselineReducedSum).toBeUndefined();
+  expect(incomplete.comparison.candidateReducedSum).toBeUndefined();
+  expect(incomplete.comparison.aggregateGainPercent).toBeUndefined();
 });
 
 test('benchmark analyzer reports incomplete and quality regression arms', () => {

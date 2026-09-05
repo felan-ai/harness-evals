@@ -110,6 +110,78 @@ test('publishes a finalized batch to filesystem and reclassifies catalog without
   expect(index.batches[0]).toMatchObject({ batchId, validity: 'invalid', validityNote: 'review' });
 });
 
+test('publishes ratio-of-reduced-sums aggregate fields to the public benchmark archive', async () => {
+  const root = await tempRoot();
+  const batchId = '20260102-010203-abcd';
+  const artifactRoot = join(root, '.harness-evals', 'runs');
+  const benchmark: BenchmarkDefinition = {
+    revision: 1,
+    label: 'Weighted cost',
+    select: { cases: ['case-a', 'case-b'] },
+    arms: { baseline: 'agent', candidate: 'candidate' },
+    trials: 1,
+    qualityGates: [{ metric: 'quality.passRate', min: 1 }],
+    objective: [{ metric: 'cost.total', goal: 'minimize' }],
+    aggregation: { trials: 'median', cases: 'ratioOfReducedSums' },
+  };
+  const runs = [
+    ['case-a', 'agent', 1, 1],
+    ['case-b', 'agent', 1, 3],
+    ['case-a', 'candidate', 1, 1.5],
+    ['case-b', 'candidate', 1, 2],
+  ] as const;
+  const runIds: string[] = [];
+  for (const [caseId, agentName, attemptNumber, cost] of runs) {
+    const runId = `${caseId}-${agentName}-${attemptNumber}`;
+    runIds.push(runId);
+    const runDir = await mkdirPath(join(artifactRoot, runId));
+    await writeFile(join(runDir, 'summary.json'), JSON.stringify({
+      caseId,
+      suite: 'weighted-cost',
+      agentName,
+      batchId,
+      benchmark: { id: 'weighted', revision: 1, digest: benchmarkDefinitionDigest('weighted', benchmark) },
+      attemptNumber,
+      status: 'passed',
+      pass: true,
+      metrics: { 'quality.passRate': 1, 'cost.total': cost },
+    }));
+    await writeFile(join(runDir, 'run-started.json'), JSON.stringify({
+      caseId,
+      agentName,
+      batch: { batchId, startedAt: '2026-01-02T01:02:03.000Z', label: '<batch>' },
+    }));
+  }
+  const batch = { batchId, startedAt: '2026-01-02T01:02:03.000Z', label: '<batch>', agents: ['agent', 'candidate'], caseCount: 2, runCount: 4 };
+  await writeCompletedBatchRecord({ projectRoot: root, batch, expectedRunCount: 4, runIds });
+  const storeRoot = join(root, 'store');
+  const store = new FilePublicResultsStore(storeRoot);
+  const config = { store: { type: 'file' as const, root: storeRoot }, prefix: 'archive', publicBaseUrl: 'https://example.test/archive/v1' };
+
+  await publishBatch({
+    projectRoot: root,
+    artifactRoot,
+    config,
+    batchId,
+    store,
+    benchmarks: { weighted: benchmark },
+    benchmarkCases: { weighted: ['case-a', 'case-b'] },
+  });
+
+  const report = JSON.parse(new TextDecoder().decode(await store.get('archive/v1/batches/20260102-010203-abcd/benchmarks/weighted/results.json')));
+  expect(report.comparison).toMatchObject({
+    baselineReducedSum: 4,
+    candidateReducedSum: 3.5,
+    aggregateChangePercent: -12.5,
+    aggregateGainPercent: 12.5,
+  });
+  const csv = new TextDecoder().decode(await store.get('archive/v1/batches/20260102-010203-abcd/benchmarks/weighted/results.csv'));
+  expect(csv).toContain('objectiveGoal,caseReducer,averageChangePercent');
+  expect(csv).toContain(',minimize,ratioOfReducedSums,');
+  const html = new TextDecoder().decode(await store.get('archive/v1/batches/20260102-010203-abcd/benchmarks/weighted/results.html'));
+  expect(html).toContain('Ratio of reduced sums');
+});
+
 test('publication status dry run does not create an absent file store', async () => {
   const root = await tempRoot();
   const storeRoot = join(root, 'absent-store');

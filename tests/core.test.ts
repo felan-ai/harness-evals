@@ -17,7 +17,7 @@ import { copyWorkspace } from '../src/workspace/copy.js';
 import { snapshotWorkspace } from '../src/workspace/snapshot.js';
 import { diffWorkspace } from '../src/workspace/diff.js';
 import { buildMatrix } from '../src/runner/matrix.js';
-import { resolveBenchmarkSelection } from '../src/benchmarks/select.js';
+import { benchmarkDefinitionDigest, resolveBenchmarkSelection } from '../src/benchmarks/select.js';
 import { builtInAdapters, createAdapterRegistry } from '../src/adapters/registry.js';
 import { runHarness } from '../src/runner/evaluate.js';
 import { createOutputDispatcher } from '../src/output/dispatcher.js';
@@ -211,6 +211,49 @@ test('benchmark objective arrays reject duplicate and excess objectives', async 
   await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow('metrics must be unique');
   await writeFile(join(root, 'harness-evals.yaml'), config('- { metric: cost.total, goal: minimize }\n      - { metric: usage.promptTokens, goal: minimize }\n      - { metric: usage.outputTokens, goal: minimize }'));
   await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow('must contain one primary objective');
+});
+
+test('benchmark case reducers accept ratio of reduced sums and change the definition digest', async () => {
+  const root = await tempRoot();
+  await mkdir(join(root, 'cases'));
+  await writeFile(join(root, 'cases', 'case.yaml'), 'id: one\nprompt: hi\nassert: []\n');
+  await writeFile(join(root, 'harness-evals.yaml'), `
+version: 1
+agents:
+  base: { adapter: command, command: echo }
+  candidate: { adapter: command, command: echo }
+tests: [cases/*.yaml]
+benchmarks:
+  cost:
+    label: Cost
+    select: { cases: [one] }
+    arms: { baseline: base, candidate: candidate }
+    objective: [{ metric: cost.total, goal: minimize }]
+    aggregation: { trials: mean, cases: ratioOfReducedSums }
+`);
+
+  const ratioConfig = await loadHarnessConfig({ cwd: root });
+  const ratio = resolveBenchmarkSelection(ratioConfig, 'cost');
+  expect(ratio.definition.aggregation).toEqual({ trials: 'mean', cases: 'ratioOfReducedSums' });
+  const macroDefinition = { ...ratio.definition, aggregation: { trials: 'mean' as const, cases: 'macroMean' as const } };
+  expect(ratio.digest).toBe(benchmarkDefinitionDigest('cost', ratio.definition));
+  expect(ratio.digest).not.toBe(benchmarkDefinitionDigest('cost', macroDefinition));
+
+  await writeFile(join(root, 'harness-evals.yaml'), `
+version: 1
+agents:
+  base: { adapter: command, command: echo }
+  candidate: { adapter: command, command: echo }
+tests: [cases/*.yaml]
+benchmarks:
+  cost:
+    label: Cost
+    select: { cases: [one] }
+    arms: { baseline: base, candidate: candidate }
+    objective: [{ metric: cost.total, goal: minimize }]
+`);
+  const defaultConfig = await loadHarnessConfig({ cwd: root });
+  expect(resolveBenchmarkSelection(defaultConfig, 'cost').definition.aggregation).toEqual({ trials: 'median', cases: 'macroMean' });
 });
 
 test('workspace setup commands load and case commands replace project defaults', async () => {

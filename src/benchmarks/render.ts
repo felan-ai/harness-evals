@@ -1,4 +1,4 @@
-import type { BenchmarkArmState, BenchmarkAttemptQuality, BenchmarkReportData } from './analyze.js';
+import type { BenchmarkArmState, BenchmarkAttemptQuality, BenchmarkComparisonSummary, BenchmarkReportData } from './analyze.js';
 
 export function renderBenchmarkJson(report: BenchmarkReportData): string {
   return `${JSON.stringify(report, null, 2)}\n`;
@@ -11,8 +11,10 @@ export function renderBenchmarkCsv(report: BenchmarkReportData): string {
     'baselineFailedAssertions', 'candidateFailedAssertions',
     'baselineObservations', 'candidateObservations', 'baselineValue',
     'candidateValue', 'changePercent', 'gainPercent', 'objectiveRole', 'objectiveGoal',
+    'caseReducer',
     'averageChangePercent', 'minChangePercent', 'maxChangePercent',
     'averageGainPercent', 'minGainPercent', 'maxGainPercent',
+    'baselineReducedSum', 'candidateReducedSum', 'aggregateChangePercent', 'aggregateGainPercent',
   ]];
   const primaryObjective = report.definition.objective[0];
   const objective = primaryObjective.metric;
@@ -40,12 +42,17 @@ export function renderBenchmarkCsv(report: BenchmarkReportData): string {
         String(comparison?.gainPercent ?? ''),
         objectiveComparison?.role ?? '',
         objectiveComparison?.goal ?? '',
+        report.definition.aggregation.cases,
         String(objectiveComparison?.averageChangePercent ?? ''),
         String(objectiveComparison?.minChangePercent ?? ''),
         String(objectiveComparison?.maxChangePercent ?? ''),
         String(objectiveComparison?.averageGainPercent ?? ''),
         String(objectiveComparison?.minGainPercent ?? ''),
         String(objectiveComparison?.maxGainPercent ?? ''),
+        String(objectiveComparison?.baselineReducedSum ?? ''),
+        String(objectiveComparison?.candidateReducedSum ?? ''),
+        String(objectiveComparison?.aggregateChangePercent ?? ''),
+        String(objectiveComparison?.aggregateGainPercent ?? ''),
       ]);
     }
     const comparison = report.comparison.cases.find((item) => item.caseId === caseId);
@@ -57,7 +64,8 @@ export function renderBenchmarkCsv(report: BenchmarkReportData): string {
         categories(attempt.baselineQuality), categories(attempt.candidateQuality),
         attempt.baselineQuality?.failedAssertions?.join('|') ?? '', attempt.candidateQuality?.failedAssertions?.join('|') ?? '',
         '', '', String(attempt.baselineValue ?? ''), String(attempt.candidateValue ?? ''),
-        String(attempt.changePercent ?? ''), String(attempt.gainPercent ?? ''), 'primary', primaryObjective.goal, '', '', '', '', '',
+        String(attempt.changePercent ?? ''), String(attempt.gainPercent ?? ''), 'primary', primaryObjective.goal, report.definition.aggregation.cases, '', '', '', '', '',
+        '', '', '', '',
       ]);
     }
   }
@@ -67,9 +75,13 @@ export function renderBenchmarkCsv(report: BenchmarkReportData): string {
 export function renderBenchmarkHtml(report: BenchmarkReportData): string {
   const primaryObjective = report.definition.objective[0];
   const objective = primaryObjective.metric;
+  const ratioOfReducedSums = usesRatioOfReducedSums(report);
+  const primaryHeadline = headlineFor(report, report.comparison);
   const states = comparisonStates(report);
-  const objectiveLabel = `${metricLabel(objective)} · ${primaryObjective.goal}`;
-  const overallAssessment = assessment(report, report.comparison.averageGainPercent);
+  const objectiveLabel = ratioOfReducedSums
+    ? `${metricLabel(objective)} · ${primaryObjective.goal} · ${aggregationLabel(report)}`
+    : `${metricLabel(objective)} · ${primaryObjective.goal}`;
+  const overallAssessment = assessment(report, primaryHeadline.gainPercent);
   const tests = report.comparison.cases.map((item) => {
     const attempts = item.attempts.map((attempt) => {
       const attemptAssessment = assessmentForQualities(attempt.gainPercent, [attempt.baselineQuality, attempt.candidateQuality]);
@@ -86,19 +98,32 @@ export function renderBenchmarkHtml(report: BenchmarkReportData): string {
   const reducer = capitalize(report.definition.aggregation.trials);
   const direction = primaryObjective.goal === 'minimize' ? 'lower' : 'higher';
   const objectiveSummaries = report.objectiveComparisons.map((comparison) => {
-    const comparisonAssessment = assessment(report, comparison.averageGainPercent);
-    const label = `${metricLabel(comparison.metric)} outcome ${formatPercent(comparison.averageGainPercent)}; ${formatAssessment(comparisonAssessment)}`;
+    const comparisonHeadline = headlineFor(report, comparison);
+    const comparisonAssessment = assessment(report, comparisonHeadline.gainPercent);
+    const label = `${metricLabel(comparison.metric)} outcome ${formatPercent(comparisonHeadline.gainPercent)}; ${formatAssessment(comparisonAssessment)}`;
+    if (ratioOfReducedSums) {
+      const aggregateValues = `Aggregate values: baseline ${formatMetric(comparison.metric, comparison.baselineReducedSum)}; candidate ${formatMetric(comparison.metric, comparison.candidateReducedSum)}`;
+      const diagnostics = `case mean ${formatPercent(comparison.averageGainPercent)}; Case range (macro mean) ${formatRange(comparison.minGainPercent, comparison.maxGainPercent)}`;
+      return `<div class="objective-card"><strong>${escape(metricLabel(comparison.metric))}</strong><span>${comparison.role} · ${comparison.goal} · ${escape(aggregationLabel(report))}</span><b class="change-value ${assessmentClass(comparisonAssessment)}" aria-label="${escape(label)}">${formatPercent(comparisonHeadline.gainPercent)}</b><small>${escape(aggregateValues)} · ${escape(diagnostics)}</small></div>`;
+    }
     return `<div class="objective-card"><strong>${escape(metricLabel(comparison.metric))}</strong><span>${comparison.role} · ${comparison.goal}</span><b class="change-value ${assessmentClass(comparisonAssessment)}" aria-label="${escape(label)}">${formatPercent(comparison.averageGainPercent)}</b><small>range ${formatRange(comparison.minGainPercent, comparison.maxGainPercent)}</small></div>`;
   }).join('');
-  const primaryLabel = `Primary outcome ${formatPercent(report.comparison.averageGainPercent)}; ${formatAssessment(overallAssessment)}`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(report.definition.label)}</title><style>${styles()}</style></head><body><main><a class="back" href="../index.html">← Benchmarks</a><header class="detail-header"><h1>${escape(report.definition.label)}</h1><p class="pair">${escape(report.candidate.comparisonId)} vs ${escape(report.baseline.comparisonId)}</p><p class="objective">${escape(objectiveLabel)} · ${direction} is better</p><div class="result-line"><span class="result-stat"><strong class="change-value ${changeClass(report, report.comparison.averageGainPercent)}" aria-label="${escape(primaryLabel)}">${formatPercent(report.comparison.averageGainPercent)}</strong><span>primary outcome</span></span><span class="separator">·</span><span class="result-stat"><strong>${formatRange(report.comparison.minGainPercent, report.comparison.maxGainPercent)}</strong><span>range</span></span>${status}</div>${report.baseline.state === 'quality regression' || report.candidate.state === 'quality regression' ? '<p class="quality-warning">Quality regression — metric movement is shown for diagnosis; it is not a success signal.</p>' : ''}</header><section class="objective-grid">${objectiveSummaries}</section><section class="data-section"><h2>Metrics</h2>${renderMetricTable(report)}</section><section class="data-section"><h2>Tests</h2><div class="test-list"><div class="test-columns"><span>Test</span><span>Baseline (${reducer})</span><span>Candidate (${reducer})</span><span>vs baseline</span></div>${tests || '<p class="empty-list">No tests.</p>'}</div></section></main></body></html>\n`;
+  const primaryLabel = ratioOfReducedSums
+    ? `Aggregate outcome ${formatPercent(primaryHeadline.gainPercent)}; ${formatAssessment(overallAssessment)}`
+    : `Primary outcome ${formatPercent(primaryHeadline.gainPercent)}; ${formatAssessment(overallAssessment)}`;
+  const primaryStatLabel = ratioOfReducedSums ? `primary outcome · ${aggregationLabel(report)}` : 'primary outcome';
+  const rangeStatLabel = ratioOfReducedSums ? 'Case range (macro mean)' : 'range';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(report.definition.label)}</title><style>${styles()}</style></head><body><main><a class="back" href="../index.html">← Benchmarks</a><header class="detail-header"><h1>${escape(report.definition.label)}</h1><p class="pair">${escape(report.candidate.comparisonId)} vs ${escape(report.baseline.comparisonId)}</p><p class="objective">${escape(objectiveLabel)} · ${direction} is better</p><div class="result-line"><span class="result-stat"><strong class="change-value ${changeClass(report, primaryHeadline.gainPercent)}" aria-label="${escape(primaryLabel)}">${formatPercent(primaryHeadline.gainPercent)}</strong><span>${escape(primaryStatLabel)}</span></span><span class="separator">·</span><span class="result-stat"><strong>${formatRange(report.comparison.minGainPercent, report.comparison.maxGainPercent)}</strong><span>${escape(rangeStatLabel)}</span></span>${status}</div>${report.baseline.state === 'quality regression' || report.candidate.state === 'quality regression' ? '<p class="quality-warning">Quality regression — metric movement is shown for diagnosis; it is not a success signal.</p>' : ''}</header><section class="objective-grid">${objectiveSummaries}</section><section class="data-section"><h2>Metrics</h2>${renderMetricTable(report)}</section><section class="data-section"><h2>Tests</h2><div class="test-list"><div class="test-columns"><span>Test</span><span>Baseline (${reducer}${ratioOfReducedSums ? ' trials' : ''}${ratioOfReducedSums ? `; ${capitalize(aggregationLabel(report))}` : ''})</span><span>Candidate (${reducer}${ratioOfReducedSums ? ' trials' : ''}${ratioOfReducedSums ? `; ${capitalize(aggregationLabel(report))}` : ''})</span><span>vs baseline</span></div>${tests || '<p class="empty-list">No tests.</p>'}</div></section></main></body></html>\n`;
 }
 
 function renderMetricTable(report: BenchmarkReportData): string {
   const metrics = [...new Set([...Object.keys(report.baseline.values), ...Object.keys(report.candidate.values)])];
   if (metrics.length === 0) return '';
   const rows = metrics.map((metric) => `<tr><th scope="row">${escape(metricLabel(metric))}</th><td>${formatMetric(metric, report.baseline.values[metric])}</td><td>${formatMetric(metric, report.candidate.values[metric])}</td><td>${formatMetric(metric, deltaValue(report.candidate.values[metric], report.baseline.values[metric]), true)}</td></tr>`).join('');
-  return `<div class="metric-table"><table><caption class="sr-only">Benchmark metrics by arm</caption><thead><tr><th scope="col">Metric</th>${renderArmHeading(report, 'baseline')}${renderArmHeading(report, 'candidate')}<th scope="col">Delta</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const note = usesRatioOfReducedSums(report)
+    ? `<p class="objective metric-note">Arm values remain macro means across cases. The objective headline uses the ratio of reduced sums after per-case ${lowerFirst(capitalize(report.definition.aggregation.trials))} trial reduction.</p>`
+    : '';
+  return `${note}<div class="metric-table"><table><caption class="sr-only">Benchmark metrics by arm</caption><thead><tr><th scope="col">Metric</th>${renderArmHeading(report, 'baseline')}${renderArmHeading(report, 'candidate')}<th scope="col">Delta</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function renderArmHeading(report: BenchmarkReportData, role: 'baseline' | 'candidate'): string {
@@ -124,20 +149,23 @@ interface ChangeScale {
 
 function renderBenchmarkRow(report: BenchmarkReportData, scale: ChangeScale): string {
   const states = comparisonStates(report);
-  const average = report.comparison.averageGainPercent;
+  const primaryHeadline = headlineFor(report, report.comparison);
+  const average = primaryHeadline.gainPercent;
   const minimum = report.comparison.minGainPercent;
   const maximum = report.comparison.maxGainPercent;
   const chart = changeChart(report, average, minimum, maximum, scale, report.comparison.expectedCases);
-  const overallAssessment = assessment(report, report.comparison.averageGainPercent);
+  const overallAssessment = assessment(report, primaryHeadline.gainPercent);
   const unfavorable = overallAssessment === 'unfavorable' ? '<span class="status-text bad">unfavorable</span>' : '';
-  return `<article class="benchmark-row" data-benchmark-id="${escape(report.id)}"><div class="benchmark-name"><a href="${encodeURIComponent(report.id)}/results.html">${escape(report.definition.label)}</a><div class="benchmark-meta"><span>${escape(report.candidate.comparisonId)} vs ${escape(report.baseline.comparisonId)}</span>${renderStatus(states)}${unfavorable}</div></div>${chart}<strong class="change-value ${assessmentClass(overallAssessment)}">${formatPercent(average)}</strong>${renderSecondaryOutcome(report)}</article>`;
+  const aggregation = usesRatioOfReducedSums(report) ? `<span>${escape(aggregationLabel(report))}</span>` : '';
+  return `<article class="benchmark-row" data-benchmark-id="${escape(report.id)}"><div class="benchmark-name"><a href="${encodeURIComponent(report.id)}/results.html">${escape(report.definition.label)}</a><div class="benchmark-meta"><span>${escape(report.candidate.comparisonId)} vs ${escape(report.baseline.comparisonId)}</span>${aggregation}${renderStatus(states)}${unfavorable}</div></div>${chart}<strong class="change-value ${assessmentClass(overallAssessment)}">${formatPercent(average)}</strong>${renderSecondaryOutcome(report)}</article>`;
 }
 
 function renderSecondaryOutcome(report: BenchmarkReportData): string {
   const secondary = report.objectiveComparisons.find((comparison) => comparison.role === 'secondary');
   if (!secondary) return '<span class="secondary-outcome muted" aria-label="No secondary objective">—</span>';
-  const outcomeAssessment = assessment(report, secondary.averageGainPercent);
-  const description = secondaryOutcomeDescription(secondary.metric, secondary.averageChangePercent);
+  const secondaryHeadline = headlineFor(report, secondary);
+  const outcomeAssessment = assessment(report, secondaryHeadline.gainPercent);
+  const description = secondaryOutcomeDescription(secondary.metric, secondaryHeadline.changePercent);
   const label = `Secondary outcome: ${description}; ${formatAssessment(outcomeAssessment)}`;
   return `<span class="secondary-outcome ${assessmentClass(outcomeAssessment)}" aria-label="${escape(label)}">${escape(description)}</span>`;
 }
@@ -172,13 +200,19 @@ function changeChart(
   const width = Math.abs(averagePosition - zero);
   const rangeLeft = Math.min(minimumPosition, maximumPosition);
   const rangeWidth = Math.abs(maximumPosition - minimumPosition);
-  const label = `Average outcome ${formatPercent(average)}; range ${formatPercent(minimum)} to ${formatPercent(maximum)} across ${tests} ${tests === 1 ? 'test' : 'tests'}; ${formatAssessment(assessment(report, report.comparison.averageGainPercent))}`;
+  const primaryHeadline = headlineFor(report, report.comparison);
+  const label = usesRatioOfReducedSums(report)
+    ? `Aggregate outcome ${formatPercent(average)}; Case range (macro mean) ${formatPercent(minimum)} to ${formatPercent(maximum)} across ${tests} ${tests === 1 ? 'test' : 'tests'}; ${formatAssessment(assessment(report, primaryHeadline.gainPercent))}`
+    : `Average outcome ${formatPercent(average)}; range ${formatPercent(minimum)} to ${formatPercent(maximum)} across ${tests} ${tests === 1 ? 'test' : 'tests'}; ${formatAssessment(assessment(report, primaryHeadline.gainPercent))}`;
   const range = rangeWidth > 0 ? '<span class="change-range"></span>' : '';
-  return `<div class="change-chart ${changeClass(report, report.comparison.averageGainPercent)}" role="img" aria-label="${escape(label)}" style="--bar-left:${decimal(left)}%;--bar-width:${decimal(width)}%;--range-left:${decimal(rangeLeft)}%;--range-width:${decimal(rangeWidth)}%"><span class="change-track"></span><span class="change-bar"></span>${range}</div>`;
+  return `<div class="change-chart ${changeClass(report, primaryHeadline.gainPercent)}" role="img" aria-label="${escape(label)}" style="--bar-left:${decimal(left)}%;--bar-width:${decimal(width)}%;--range-left:${decimal(rangeLeft)}%;--range-width:${decimal(rangeWidth)}%"><span class="change-track"></span><span class="change-bar"></span>${range}</div>`;
 }
 
 function gainScale(reports: readonly BenchmarkReportData[]): ChangeScale {
-  const values = reports.flatMap((report) => [report.comparison.averageGainPercent, report.comparison.minGainPercent, report.comparison.maxGainPercent])
+  const values = reports.flatMap((report) => {
+    const primaryHeadline = headlineFor(report, report.comparison);
+    return [primaryHeadline.gainPercent, report.comparison.minGainPercent, report.comparison.maxGainPercent];
+  })
     .filter((value): value is number => value !== undefined && Number.isFinite(value));
   if (values.length === 0) return { min: 0, max: 100 };
   const rawMin = Math.min(0, ...values);
@@ -195,12 +229,30 @@ function changePosition(value: number, scale: ChangeScale): number {
   return Math.max(0, Math.min(100, (value - scale.min) / (scale.max - scale.min) * 100));
 }
 
+function usesRatioOfReducedSums(report: BenchmarkReportData): boolean {
+  return report.definition.aggregation.cases === 'ratioOfReducedSums';
+}
+
+function aggregationLabel(report: BenchmarkReportData): string {
+  return usesRatioOfReducedSums(report) ? 'Ratio of reduced sums' : 'Macro mean';
+}
+
+function headlineFor(report: BenchmarkReportData, comparison: BenchmarkComparisonSummary): {
+  changePercent: number | undefined;
+  gainPercent: number | undefined;
+  label: string;
+} {
+  return usesRatioOfReducedSums(report)
+    ? { changePercent: comparison.aggregateChangePercent, gainPercent: comparison.aggregateGainPercent, label: 'Aggregate outcome' }
+    : { changePercent: comparison.averageChangePercent, gainPercent: comparison.averageGainPercent, label: 'Average outcome' };
+}
+
 function comparisonStates(report: BenchmarkReportData): [BenchmarkArmState, ...BenchmarkArmState[]] {
   const armStates = [report.baseline.state, report.candidate.state];
   const states = (['quality regression', 'incomplete', 'metric unavailable', 'inconclusive'] as const)
     .filter((state) => armStates.includes(state));
   if (states.length > 0) return states as [BenchmarkArmState, ...BenchmarkArmState[]];
-  return [report.comparison.averageGainPercent === undefined ? 'metric unavailable' : 'eligible'];
+  return [headlineFor(report, report.comparison).gainPercent === undefined ? 'metric unavailable' : 'eligible'];
 }
 
 function renderStatus(states: readonly BenchmarkArmState[]): string {

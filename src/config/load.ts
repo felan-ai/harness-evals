@@ -14,6 +14,7 @@ import type {
   AssertionCondition,
   AssertionConfig,
   BenchmarkAggregation,
+  BenchmarkCaseReducer,
   BenchmarkDefinition,
   BenchmarkGoal,
   BenchmarkObjective,
@@ -58,6 +59,7 @@ const VERIFIER_REWARD_FORMATS = new Set<VerifierRewardFormat>(['auto', 'json', '
 const NETWORK_POLICY_MODES = new Set<NetworkPolicyConfig['mode']>(['default', 'none', 'allowlist']);
 const BENCHMARK_GOALS = new Set<BenchmarkGoal>(['minimize', 'maximize']);
 const BENCHMARK_TRIAL_REDUCERS = new Set<BenchmarkTrialReducer>(['median', 'mean']);
+const BENCHMARK_CASE_REDUCERS = new Set<BenchmarkCaseReducer>(['macroMean', 'ratioOfReducedSums']);
 const BENCHMARK_METRIC_PATTERN = /^[a-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+$/;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -245,8 +247,8 @@ function readBenchmarkAggregation(value: unknown, field: string): BenchmarkAggre
   const trials = readOptionalString(value.trials, `${field}.trials`) ?? 'median';
   if (!BENCHMARK_TRIAL_REDUCERS.has(trials as BenchmarkTrialReducer)) throw new Error(`${field}.trials must be median or mean`);
   const cases = readOptionalString(value.cases, `${field}.cases`) ?? 'macroMean';
-  if (cases !== 'macroMean') throw new Error(`${field}.cases must be macroMean`);
-  return { trials: trials as BenchmarkTrialReducer, cases: 'macroMean' };
+  if (!BENCHMARK_CASE_REDUCERS.has(cases as BenchmarkCaseReducer)) throw new Error(`${field}.cases must be macroMean or ratioOfReducedSums`);
+  return { trials: trials as BenchmarkTrialReducer, cases: cases as BenchmarkCaseReducer };
 }
 
 function readMetricName(value: unknown, field: string): string {

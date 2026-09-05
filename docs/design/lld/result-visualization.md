@@ -40,7 +40,11 @@ percentage movement: raw `changePercent` is `(candidate - baseline) /
 abs(baseline)`, while positive `gainPercent` interprets that movement using
 each objective's `minimize`/`maximize` goal. For objective percentages, HTML
 presents only the signed, goal-aware value; structured JSON and CSV retain both
-percentage values. Every numeric metric persisted by the runs appears once in the benchmark
+percentage values. A benchmark may opt into
+`aggregation.cases: ratioOfReducedSums` for additive resource objectives. That
+mode applies the configured trial reducer within each case, sums the reduced
+case values per arm, and exposes the resulting aggregate change/gain separately
+from the legacy case-level mean and range diagnostics. Every numeric metric persisted by the runs appears once in the benchmark
 metrics matrix with metrics as rows, benchmark arms as columns, and a separate
 absolute delta column.
 
