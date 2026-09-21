@@ -138,7 +138,7 @@ Useful top-level sections:
 - `mocks`: mock fixture root and strictness
 - `output`: output providers
 - `visualization`: html/json/csv report settings
-- `judge`: shared defaults for `llmJudge` assertions
+- `judge`: shared defaults for `llmJudge` and structured `jevJudge` assertions
 - `scoring`: weights for pass rate, judge score, verifier reward, latency, cost, token usage
 - `benchmarks`: named comparisons with selectors, baseline/candidate arms,
   trials, quality gates, one primary objective and an optional secondary
@@ -320,7 +320,7 @@ Supported forms:
 
 Missing variables without a fallback become an empty string.
 
-For `llmJudge`, explicit `judge.provider`, `judge.model`, and `judge.apiKeyEnv` are optional only when a configured agent adapter supports headless `complete()` calls for automatic judge fallback.
+For `llmJudge`, explicit `judge.provider`, `judge.model`, and `judge.apiKeyEnv` are optional only when a configured agent adapter supports headless `complete()` calls for automatic judge fallback. `jevJudge` requires `judge.provider` or `judge.jev.provider`; use `typesafe`, `openrouter`, or `vercel-ai-gateway` and keep the corresponding credential in the host environment.
 
 ## Safe credential handling
 
@@ -355,6 +355,11 @@ for the supported provider IDs and the local `.harness-evals/auth` storage
 behavior.
 
 Default Docker allowlist includes common LLM API key names such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GEMINI_API_KEY`.
+
+Jev judge credentials are host-side secrets: `TYPESAFE_API_KEY`,
+`OPENROUTER_API_KEY`, and `AI_GATEWAY_API_KEY` are read by the harness judge,
+redacted from state and artifacts, and do not need to be forwarded into the
+agent container.
 
 ## Common commands
 

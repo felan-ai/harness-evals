@@ -2,6 +2,7 @@ import type { AdapterRegistry } from '../adapters/registry.js';
 import type { LoadedHarnessConfig } from '../config/schema.js';
 import { createAdapterJudgeRunner } from './adapter.js';
 import { defaultJudgeRunner } from './default.js';
+import { defaultJevJudgeRunner } from './jev.js';
 import type { JudgeRequest, JudgeRunner } from './types.js';
 
 export interface ConfiguredJudgeRunnerInput {
@@ -11,7 +12,10 @@ export interface ConfiguredJudgeRunnerInput {
 
 export function createConfiguredJudgeRunner(input: ConfiguredJudgeRunnerInput): JudgeRunner {
   const adapterJudgeRunner = createAdapterJudgeRunner(input);
-  return async (request) => explicitJudgeRequest(request) ? defaultJudgeRunner(request) : adapterJudgeRunner(request);
+  return async (request) => {
+    if (request.judgeType === 'jevJudge') return defaultJevJudgeRunner(request);
+    return explicitJudgeRequest(request) ? defaultJudgeRunner(request) : adapterJudgeRunner(request);
+  };
 }
 
 function explicitJudgeRequest(request: JudgeRequest): boolean {

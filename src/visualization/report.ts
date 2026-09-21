@@ -111,7 +111,7 @@ function buildCell(result: Record<string, unknown>, include: ReportIncludeConfig
   const verifier = result.verifier ?? record(result.metadata).verifier;
   const toolCalls = arrayFrom(record(result.events).toolCalls).concat(steps.flatMap((step) => arrayFrom(record(step.events).toolCalls)));
   const mockCalls = arrayFrom(record(result.events).mockCalls).concat(arrayFrom(record(record(result.metadata).mockCalls).summary));
-  const judgeResults = assertions.filter((assertion) => assertion.type === 'llmJudge' || assertion.judge !== undefined || assertion.rationale !== undefined);
+  const judgeResults = assertions.filter((assertion) => assertion.type === 'llmJudge' || assertion.type === 'jevJudge' || assertion.judge !== undefined || assertion.rationale !== undefined);
 
   return {
     status: resultStatus(result),

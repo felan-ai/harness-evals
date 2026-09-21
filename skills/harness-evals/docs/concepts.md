@@ -121,7 +121,7 @@ Built-in assertion types include:
 - `noToolErrors`
 - `workspaceDiff`
 - `settingsDrivenSetup`
-- `llmJudge`
+- `llmJudge` and `jevJudge`
 
 Assertions may include `when.agent` to apply only to one configured agent. A
 non-matching assertion is omitted from evaluation and scoring.

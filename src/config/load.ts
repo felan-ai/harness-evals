@@ -23,6 +23,9 @@ import type {
   HarnessConfig,
   JudgeAssertionDefinition,
   JudgeDefaults,
+  JevJudgeAssertionDefinition,
+  JevJudgeDefaults,
+  JevProvider,
   LoadedHarnessConfig,
   MockConfig,
   NetworkPolicyConfig,
@@ -62,6 +65,7 @@ const BENCHMARK_TRIAL_REDUCERS = new Set<BenchmarkTrialReducer>(['median', 'mean
 const BENCHMARK_CASE_REDUCERS = new Set<BenchmarkCaseReducer>(['macroMean', 'ratioOfReducedSums']);
 const BENCHMARK_METRIC_PATTERN = /^[a-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+$/;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const JEV_PROVIDERS = new Set<JevProvider>(['typesafe', 'openrouter', 'vercel-ai-gateway']);
 
 const BASE_ASSERTION_KEYS = ['id', 'type', 'required', 'when'] as const;
 const ASSERTION_KEYS: Record<string, readonly string[]> = {
@@ -74,6 +78,7 @@ const ASSERTION_KEYS: Record<string, readonly string[]> = {
   workspaceDiff: assertionKeys('changedFiles', 'addedFiles', 'deletedFiles', 'minChanged', 'maxChanged'),
   settingsDrivenSetup: assertionKeys(),
   llmJudge: assertionKeys('threshold', 'judge'),
+  jevJudge: assertionKeys('threshold', 'judge'),
 };
 
 function assertionKeys(...keys: string[]): readonly string[] {
@@ -579,13 +584,32 @@ function readOptionalVisualizationFormats(value: unknown, field: string): Visual
 function readJudgeDefaults(value: unknown): JudgeDefaults | undefined {
   if (value === undefined || value === null) return undefined;
   if (!isRecord(value)) throw new Error('judge must be an object');
-  assertKnownKeys(value, ['provider', 'model', 'apiKeyEnv', 'temperature', 'promptTemplate'], 'judge');
+  assertKnownKeys(value, ['provider', 'model', 'apiKeyEnv', 'temperature', 'promptTemplate', 'jev'], 'judge');
   return {
     provider: readOptionalString(value.provider, 'judge.provider'),
     model: readOptionalString(value.model, 'judge.model'),
     apiKeyEnv: readOptionalString(value.apiKeyEnv, 'judge.apiKeyEnv'),
     temperature: readOptionalNumber(value.temperature, 'judge.temperature'),
     promptTemplate: readOptionalString(value.promptTemplate, 'judge.promptTemplate'),
+    jev: readJevJudgeDefaults(value.jev, 'judge.jev'),
+  };
+}
+
+function readJevJudgeDefaults(value: unknown, field: string): JevJudgeDefaults | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value)) throw new Error(`${field} must be an object`);
+  assertKnownKeys(value, ['provider', 'model', 'apiKeyEnv', 'timeoutMs'], field);
+  const provider = readOptionalString(value.provider, `${field}.provider`);
+  if (provider && !JEV_PROVIDERS.has(provider as JevProvider)) {
+    throw new Error(`${field}.provider must be one of: ${[...JEV_PROVIDERS].join(', ')}`);
+  }
+  const timeoutMs = readOptionalNumber(value.timeoutMs, `${field}.timeoutMs`);
+  validateJevTimeout(timeoutMs, field);
+  return {
+    provider: provider as JevProvider | undefined,
+    model: readOptionalString(value.model, `${field}.model`),
+    apiKeyEnv: readOptionalString(value.apiKeyEnv, `${field}.apiKeyEnv`),
+    timeoutMs,
   };
 }
 
@@ -987,8 +1011,46 @@ function readAssertions(value: unknown, field: string): AssertionConfig[] {
       if (threshold < 0 || threshold > 1) throw new Error(`${itemField}.threshold must be between 0 and 1`);
       return { ...normalized, threshold, judge: readJudgeAssertion(entry.judge, `${itemField}.judge`) };
     }
+    if (type === 'jevJudge') {
+      const threshold = readOptionalNumber(entry.threshold, `${itemField}.threshold`);
+      if (threshold === undefined) throw new Error(`${itemField}.threshold is required`);
+      if (threshold < 0 || threshold > 1) throw new Error(`${itemField}.threshold must be between 0 and 1`);
+      return { ...normalized, threshold, judge: readJevJudgeAssertion(entry.judge, `${itemField}.judge`) };
+    }
     return normalized;
   });
+}
+
+function readJevJudgeAssertion(value: unknown, field: string): JevJudgeAssertionDefinition {
+  if (!isRecord(value)) throw new Error(`${field} must be an object`);
+  assertKnownKeys(value, ['provider', 'model', 'apiKeyEnv', 'timeoutMs', 'rubric', 'inputs'], field);
+  const rubric = readOptionalString(value.rubric, `${field}.rubric`);
+  if (!rubric) throw new Error(`${field}.rubric is required`);
+  const inputs = readOptionalStringArray(value.inputs, `${field}.inputs`);
+  if (!inputs || inputs.length === 0) throw new Error(`${field}.inputs is required`);
+  for (const input of inputs) {
+    if (!JUDGE_INPUT_REFS.has(input)) throw new Error(`${field}.inputs contains unsupported ref: ${input}`);
+  }
+  const provider = readOptionalString(value.provider, `${field}.provider`);
+  if (provider && !JEV_PROVIDERS.has(provider as JevProvider)) {
+    throw new Error(`${field}.provider must be one of: ${[...JEV_PROVIDERS].join(', ')}`);
+  }
+  const timeoutMs = readOptionalNumber(value.timeoutMs, `${field}.timeoutMs`);
+  validateJevTimeout(timeoutMs, field);
+  return {
+    provider: provider as JevProvider | undefined,
+    model: readOptionalString(value.model, `${field}.model`),
+    apiKeyEnv: readOptionalString(value.apiKeyEnv, `${field}.apiKeyEnv`),
+    timeoutMs,
+    rubric,
+    inputs: inputs as JevJudgeAssertionDefinition['inputs'],
+  };
+}
+
+function validateJevTimeout(timeoutMs: number | undefined, field: string): void {
+  if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000)) {
+    throw new Error(`${field}.timeoutMs must be an integer between 1 and 60000`);
+  }
 }
 
 function readAssertionCondition(value: unknown, field: string): AssertionCondition | undefined {
@@ -1025,7 +1087,15 @@ function validateExplicitJudgeConfig(testCases: TestCase[], defaults: JudgeDefau
   for (const testCase of testCases) {
     for (const step of testCase.steps) {
       for (const assertion of step.assert) {
-        if (assertion.type !== 'llmJudge') continue;
+        if (assertion.type !== 'llmJudge' && assertion.type !== 'jevJudge') continue;
+        if (assertion.type === 'jevJudge') {
+          const judgeAssertion = assertion as AssertionConfig & { judge: JevJudgeAssertionDefinition };
+          const provider = judgeAssertion.judge.provider ?? defaults?.jev?.provider;
+          if (!provider) {
+            throw new Error(`jevJudge assertion ${judgeAssertion.id ?? judgeAssertion.type} in ${testCase.id}.${step.id} requires judge.provider or top-level judge.jev.provider`);
+          }
+          continue;
+        }
         const judgeAssertion = assertion as AssertionConfig & { judge: JudgeAssertionDefinition };
         const provider = judgeAssertion.judge.provider ?? defaults?.provider;
         const model = judgeAssertion.judge.model ?? defaults?.model;

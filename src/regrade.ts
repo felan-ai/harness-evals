@@ -506,8 +506,8 @@ function validateOfflineInputs(entry: MatrixEntry, sourceRunId: string): void {
       throw new Error(`${sourceRunId} uses hidden patch capture, which retained replay does not support`);
     }
   }
-  const judgeAssertions = entry.testCase.steps.flatMap((step) => step.assert).filter((assertion) => assertion.type === 'llmJudge');
-  if (judgeAssertions.length > 0) throw new Error(`${sourceRunId} uses llmJudge assertions, which could call a provider`);
+  const judgeAssertions = entry.testCase.steps.flatMap((step) => step.assert).filter((assertion) => assertion.type === 'llmJudge' || assertion.type === 'jevJudge');
+  if (judgeAssertions.length > 0) throw new Error(`${sourceRunId} uses provider-backed judge assertions, which could call a provider`);
 }
 
 async function reverifyRun(

@@ -182,6 +182,16 @@ export interface JudgeDefaults {
   apiKeyEnv?: string;
   temperature?: number;
   promptTemplate?: string;
+  jev?: JevJudgeDefaults;
+}
+
+export type JevProvider = 'typesafe' | 'openrouter' | 'vercel-ai-gateway';
+
+export interface JevJudgeDefaults {
+  provider?: JevProvider;
+  model?: string;
+  apiKeyEnv?: string;
+  timeoutMs?: number;
 }
 
 export type JudgeInputRef =
@@ -196,6 +206,11 @@ export type JudgeInputRef =
   | 'cost';
 
 export interface JudgeAssertionDefinition extends Partial<JudgeDefaults> {
+  rubric: string;
+  inputs: JudgeInputRef[];
+}
+
+export interface JevJudgeAssertionDefinition extends Partial<JevJudgeDefaults> {
   rubric: string;
   inputs: JudgeInputRef[];
 }
@@ -218,7 +233,13 @@ export interface LlmJudgeAssertionConfig extends BaseAssertionConfig {
   judge: JudgeAssertionDefinition;
 }
 
-export type AssertionConfig = BaseAssertionConfig | LlmJudgeAssertionConfig;
+export interface JevJudgeAssertionConfig extends BaseAssertionConfig {
+  type: 'jevJudge';
+  threshold: number;
+  judge: JevJudgeAssertionDefinition;
+}
+
+export type AssertionConfig = BaseAssertionConfig | LlmJudgeAssertionConfig | JevJudgeAssertionConfig;
 
 export type ScoreType = 'assertionPassRate' | 'judgeScore' | 'verifierReward' | 'latency' | 'cost' | 'tokenUsage';
 export type ScoreTarget = 'maximize' | 'minimize';

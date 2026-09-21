@@ -4,7 +4,7 @@ Use assertions to decide whether a step passed, and scoring to compare runs that
 
 ## Built-in assertions
 
-Harness-evals evaluates built-in assertions first, then any `llmJudge` assertions.
+Harness-evals evaluates built-in assertions first, then any `llmJudge` or `jevJudge` assertions.
 
 Built-ins:
 
@@ -31,7 +31,7 @@ assert:
 
 The assertion is evaluated only for the named agent. For other agents it is
 omitted from the assertion results, gates, and score denominators. This also
-means conditional `llmJudge` assertions are not invoked for non-matching
+means conditional judge assertions are not invoked for non-matching
 agents. The condition must reference an agent declared in the project config.
 
 For `toolCalled`, `isError: false` matches calls that were not recorded as
@@ -97,6 +97,35 @@ The default prompt is built from the rubric and the selected inputs, and asks th
 {"score":0.0,"pass":true,"reason":"...","metadata":{}}
 ```
 
+## `jevJudge`
+
+`jevJudge` is the structured Jev alternative to text-generating LLM judging.
+It sends the selected inputs as shared state and asks one typed Boolean/Noul
+question using the rubric as its instructions. The returned probability of
+true is the normalized score; Jev confidence is retained as metadata and Jev
+does not generate a prose rationale.
+
+```yaml
+judge:
+  jev:
+    provider: typesafe # typesafe, openrouter, or vercel-ai-gateway
+
+assert:
+  - id: quality
+    type: jevJudge
+    threshold: 0.8
+    judge:
+      rubric: Is the agent result correct and complete?
+      inputs: [finalOutput, workspaceDiff, toolCalls]
+```
+
+Provider defaults are `jev-latest` / `TYPESAFE_API_KEY` for TypeSafe,
+`typesafe/jev-1.13` / `OPENROUTER_API_KEY` for OpenRouter, and
+`typesafe-ai/jev` / `AI_GATEWAY_API_KEY` for Vercel AI Gateway. Override
+`model`, `apiKeyEnv`, or `timeoutMs` under `judge.jev` or the assertion's
+`judge` object. Jev credentials are host-side secrets and are not forwarded to
+the evaluated agent.
+
 ## Judge defaults and fallback
 
 You can set shared judge defaults at the top level:
@@ -111,9 +140,12 @@ judge:
 
 Each `llmJudge` may override `provider`, `model`, `apiKeyEnv`, `temperature`, and `promptTemplate`.
 
-If explicit judge config is used, `provider`, `model`, and `apiKeyEnv` must all be present after applying top-level defaults. Config loading fails when only some of those fields are present.
+If explicit LLM judge config is used, `provider`, `model`, and `apiKeyEnv` must all be present after applying top-level defaults. `jevJudge` requires an explicit Jev provider and uses provider-specific model and credential defaults.
 
 If no explicit judge provider/model/api key is configured, harness-evals uses the first configured agent whose adapter supports headless `complete()` calls. That adapter receives the judge prompt as a single string and must return the judge response as a string. The response must still be JSON with the normal `score`, optional `pass`, `reason`, and optional `metadata` fields.
+
+`jevJudge` never uses adapter-backed fallback or the LLM text parser. It
+requires host network access and one of the three explicit providers.
 
 For the built-in `pi` adapter, fallback judging invokes the Pi CLI with `pi -p` so it can reuse credentials already configured for Pi. You do not need to add separate judge API key config for that path.
 
@@ -146,7 +178,7 @@ scoring:
 
 So by default:
 
-- non-judge assertion pass rate, average `llmJudge` score, and verifier reward each contribute when present
+- non-judge assertion pass rate, average `llmJudge`/`jevJudge` score, and verifier reward each contribute when present
 - latency, cost, and token usage are reported but do not change the score
 
 Only buckets with `sourceCount > 0` and `weight > 0` are included in the weighted average.
@@ -154,7 +186,7 @@ Only buckets with `sourceCount > 0` and `weight > 0` are included in the weighte
 ## How score buckets are calculated
 
 - `assertionPassRate`: passed non-judge assertions divided by total non-judge assertions
-- `judgeScore`: average of finite numeric scores returned by `llmJudge` assertions.
+- `judgeScore`: average of finite numeric scores returned by `llmJudge` or `jevJudge` assertions.
   Judge failures without a numeric score are excluded from this bucket but still
   fail the assertion.
 - `verifierReward`: average of numeric rewards emitted by the verifier, clamped to `0..1`

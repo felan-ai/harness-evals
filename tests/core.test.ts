@@ -477,6 +477,75 @@ test('default llmJudge runtime dependency is declared', async () => {
   expect(packageJson.dependencies).toHaveProperty('@earendil-works/pi-ai');
 });
 
+test('loads additive jevJudge configuration with explicit provider defaults', async () => {
+  const root = await tempRoot();
+  await mkdir(join(root, 'cases'), { recursive: true });
+  await writeFile(join(root, 'harness-evals.yaml'), `
+version: 1
+judge:
+  jev:
+    provider: vercel-ai-gateway
+    timeoutMs: 12000
+agents:
+  subject:
+    adapter: command
+    command: echo
+tests:
+  - cases/*.yaml
+`);
+  await writeFile(join(root, 'cases', 'case.yaml'), `
+id: jev-config
+prompt: inspect
+assert:
+  - id: quality
+    type: jevJudge
+    threshold: 0.75
+    judge:
+      rubric: Is the output acceptable?
+      inputs: [finalOutput, workspaceDiff]
+`);
+
+  const config = await loadHarnessConfig({ cwd: root });
+  expect(config.judge?.jev).toEqual({ provider: 'vercel-ai-gateway', timeoutMs: 12000 });
+  expect(config.testCases[0]?.steps[0]?.assert[0]).toMatchObject({
+    type: 'jevJudge',
+    threshold: 0.75,
+    judge: { rubric: 'Is the output acceptable?', inputs: ['finalOutput', 'workspaceDiff'] },
+  });
+});
+
+test('rejects jevJudge without an explicit provider or with an invalid timeout', async () => {
+  for (const [config, message] of [
+    [`judge:\n  jev:\n    timeoutMs: 1000`, 'requires judge.provider'],
+    [`judge:\n  jev:\n    provider: typesafe\n    timeoutMs: 0`, 'timeoutMs must be an integer between 1 and 60000'],
+    [`judge:\n  jev:\n    provider: unknown`, 'provider must be one of'],
+  ] as const) {
+    const root = await tempRoot();
+    await mkdir(join(root, 'cases'), { recursive: true });
+    await writeFile(join(root, 'harness-evals.yaml'), `
+version: 1
+${config}
+agents:
+  subject:
+    adapter: command
+    command: echo
+tests:
+  - cases/*.yaml
+`);
+    await writeFile(join(root, 'cases', 'case.yaml'), `
+id: invalid-jev-config
+prompt: inspect
+assert:
+  - type: jevJudge
+    threshold: 0.5
+    judge:
+      rubric: Score it.
+      inputs: [finalOutput]
+`);
+    await expect(loadHarnessConfig({ cwd: root })).rejects.toThrow(message);
+  }
+});
+
 test('packaged skill exposes public docs index and safe onboarding guidance', async () => {
   const root = join(import.meta.dir, '..');
   const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as { files: string[]; keywords: string[] };

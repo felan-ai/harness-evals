@@ -21,7 +21,8 @@ A verifier gives you a single, deterministic, code-based pass/fail (and an optio
 | Did the agent call a tool / print a string / touch a file? | step `assert` |
 | Is the resulting code correct when executed? | `verifier` |
 | Should grading material stay hidden from the agent? | `verifier` (+ `hiddenPatch` or `assetsDir`) |
-| Is quality subjective (tone, plan quality)? | `llmJudge` assertion |
+| Is quality subjective and best judged with generated rationale? | `llmJudge` assertion |
+| Is quality a typed probability/verification decision? | `jevJudge` assertion |
 | Do you need a 0/1 score for pass@k? | `verifier` with a binary reward |
 
 They compose. A typical case uses step assertions to gate intermediate steps (e.g. a plan step must mention "refactor") and a verifier to decide final correctness. When a verifier is configured, **the run passes only if every required step assertion passes and the verifier passes.**

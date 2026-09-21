@@ -846,6 +846,60 @@ assert:
   }
 });
 
+test('jevJudge uses structured redacted state and contributes to judge scoring', async () => {
+  const root = await tempRoot();
+  const restoreDocker = await installFakeDocker(root);
+  const prepareCalls: PrepareCall[] = [];
+  const previousJevKey = process.env.TYPESAFE_API_KEY;
+  process.env.TYPESAFE_API_KEY = 'jev-secret-value';
+  const requests: Array<{ judgeType?: string; provider?: string; state: Record<string, unknown> }> = [];
+
+  try {
+    await writeHarnessProject(root, `
+id: jev-scoring
+prompt: produce output
+config:
+  script: |
+    console.log('OK jev-secret-value');
+assert:
+  - id: quality
+    type: jevJudge
+    threshold: 0.8
+    judge:
+      provider: typesafe
+      rubric: Is the result acceptable?
+      inputs: [finalOutput, workspaceDiff]
+`);
+
+    const result = await runHarness({
+      cwd: root,
+      adapters: [createLifecycleAdapter(prepareCalls)],
+      judgeRunner: async (request) => {
+        requests.push({ judgeType: request.judgeType, provider: request.provider, state: request.inputs as Record<string, unknown> });
+        return { score: 0.9, reason: 'Probability exceeded threshold', metadata: { usage: { provider: 'typesafe', model: 'jev-latest', inputTokens: 8, outputTokens: 1, totalTokens: 9, totalCost: 0.001 }, confidence: 0.94 } };
+      },
+    });
+    const run = result.results[0];
+    const step = run.steps[0];
+
+    expect(result.pass).toBe(true);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ judgeType: 'jevJudge', provider: 'typesafe' });
+    expect(JSON.stringify(requests[0]?.state)).toContain('<redacted:TYPESAFE_API_KEY>');
+    expect(JSON.stringify(requests[0]?.state)).not.toContain('jev-secret-value');
+    expect(step.assertions.find((assertion) => assertion.id === 'quality')).toMatchObject({ type: 'jevJudge', pass: true, score: 0.9, threshold: 0.8 });
+    const judgeRecord = JSON.parse(await readFile(join(run.runDir, 'steps', 'run', 'judges', 'quality.json'), 'utf8'));
+    expect(judgeRecord).toMatchObject({ type: 'jevJudge', assertionId: 'quality', score: 0.9, pass: true });
+    expect(step.score.buckets.find((bucket) => bucket.type === 'judgeScore')?.metadata.scores).toEqual([0.9]);
+    expect(step.cost.totalTokens).toBe(9);
+    expect(step.cost.totalCost).toBe(0.001);
+  } finally {
+    if (previousJevKey === undefined) delete process.env.TYPESAFE_API_KEY;
+    else process.env.TYPESAFE_API_KEY = previousJevKey;
+    restoreDocker();
+  }
+});
+
 interface PrepareCall {
   stepId: string;
   stepIndex: number;

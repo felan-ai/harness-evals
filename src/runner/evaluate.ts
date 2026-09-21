@@ -1572,13 +1572,24 @@ function judgeApiKeyEnvNames(config: LoadedHarnessConfig, testCase: MatrixEntry[
   const names = new Set<string>();
   for (const step of testCase.steps) {
     for (const assertion of step.assert) {
-      if (assertion.type !== 'llmJudge') continue;
+      if (assertion.type !== 'llmJudge' && assertion.type !== 'jevJudge') continue;
       const judge = readRecord(assertion.judge);
-      const apiKeyEnv = typeof judge?.apiKeyEnv === 'string' ? judge.apiKeyEnv : config.judge?.apiKeyEnv;
+      const apiKeyEnv = typeof judge?.apiKeyEnv === 'string'
+        ? judge.apiKeyEnv
+        : assertion.type === 'jevJudge'
+          ? config.judge?.jev?.apiKeyEnv ?? jevDefaultApiKeyEnv(typeof judge?.provider === 'string' ? judge.provider : config.judge?.jev?.provider)
+          : config.judge?.apiKeyEnv;
       if (apiKeyEnv) names.add(apiKeyEnv);
     }
   }
   return [...names];
+}
+
+function jevDefaultApiKeyEnv(provider: unknown): string | undefined {
+  if (provider === 'typesafe') return 'TYPESAFE_API_KEY';
+  if (provider === 'openrouter') return 'OPENROUTER_API_KEY';
+  if (provider === 'vercel-ai-gateway') return 'AI_GATEWAY_API_KEY';
+  return undefined;
 }
 
 function summarizeMockCallRecords(calls: readonly MockCallRecord[]): MockCallSummary[] {

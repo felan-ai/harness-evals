@@ -58,7 +58,7 @@ export { codexAdapter } from './adapters/codex.js';
 export { cursorAdapter } from './adapters/cursor.js';
 export { builtInAssertions, runAssertions } from './assertions/builtins.js';
 export type { AssertionContext, AssertionResult, AssertionRunner, AssertionRunOptions } from './assertions/types.js';
-export { createConfiguredJudgeRunner, defaultJudgeRunner } from './judge/index.js';
+export { createConfiguredJudgeRunner, createJevJudgeRunner, defaultJudgeRunner, defaultJevJudgeRunner } from './judge/index.js';
 export type { JudgeRecord, JudgeRequest, JudgeResult, JudgeRunner } from './judge/index.js';
 export { buildScenarioScoreSummary, buildScoreSummary } from './scoring/index.js';
 export type { ScoreBucketResult, ScoreSummary } from './scoring/index.js';
@@ -89,6 +89,10 @@ export type {
   ResultsStoreConfig,
   VisualizationConfig,
   JudgeDefaults,
+  JevJudgeDefaults,
+  JevJudgeAssertionDefinition,
+  JevJudgeAssertionConfig,
+  JevProvider,
   ProjectScoringConfig,
   BenchmarkAggregation,
   BenchmarkArms,

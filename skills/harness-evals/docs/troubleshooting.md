@@ -160,6 +160,16 @@ What to check:
 
 ## Judge configuration and credentials
 
+### Jev provider configuration
+
+`jevJudge` is separate from `llmJudge`: it returns a structured probability,
+not JSON prose. Set `judge.jev.provider` or an assertion-level provider to
+`typesafe`, `openrouter`, or `vercel-ai-gateway`. The default credential names
+are `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`, and `AI_GATEWAY_API_KEY`.
+
+Jev does not use adapter-backed judge fallback. Check host network access and
+the provider-specific credential before forwarding any agent credentials.
+
 ### Judge settings missing
 
 Common messages:

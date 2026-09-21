@@ -60,7 +60,7 @@ Per-step files live under `steps/<step-id>/`:
 - `cost.json`
 - `step-completed.json`
 - `mock-config.json` and `mock-calls.jsonl` for step-scoped mocks
-- `judges/<assertion-id>.json` for `llmJudge` results
+- `judges/<assertion-id>.json` for `llmJudge` and `jevJudge` results
 
 Step ids are sanitized for artifact paths, so use stable, distinct step ids.
 

@@ -1,4 +1,4 @@
-import type { AssertionConfig, JudgeInputRef, LlmJudgeAssertionConfig } from '../config/schema.js';
+import type { AssertionConfig, JudgeInputRef, JevJudgeAssertionConfig, LlmJudgeAssertionConfig } from '../config/schema.js';
 import type { JudgeRecord, JudgeRequest, JudgeResult } from '../judge/types.js';
 import { redactJson, redactString } from '../redaction.js';
 import type { AssertionContext, AssertionResult, AssertionRunner, AssertionRunOptions } from './types.js';
@@ -16,8 +16,8 @@ export const builtInAssertions: Record<string, AssertionRunner> = {
 
 export async function runAssertions(configs: AssertionConfig[], context: AssertionContext, options: AssertionRunOptions = {}): Promise<AssertionResult[]> {
   const resultsByConfig = new Map<AssertionConfig, AssertionResult>();
-  const nonJudgeConfigs = configs.filter((config) => config.type !== 'llmJudge');
-  const judgeConfigs = configs.filter(isLlmJudgeConfig);
+  const nonJudgeConfigs = configs.filter((config) => !isJudgeConfig(config));
+  const judgeConfigs = configs.filter(isJudgeConfig);
   const completed: AssertionResult[] = [];
 
   for (const config of nonJudgeConfigs) {
@@ -32,7 +32,9 @@ export async function runAssertions(configs: AssertionConfig[], context: Asserti
 
   for (const config of judgeConfigs) {
     if (!appliesToAgent(config, context.agentName)) continue;
-    const result = await llmJudge(config, { ...context, assertions: [...completed] }, options);
+    const result = config.type === 'llmJudge'
+      ? await llmJudge(config, { ...context, assertions: [...completed] }, options)
+      : await jevJudge(config, { ...context, assertions: [...completed] }, options);
     resultsByConfig.set(config, result);
     completed.push(result);
   }
@@ -266,6 +268,54 @@ async function llmJudge(config: LlmJudgeAssertionConfig, context: AssertionConte
   }
 }
 
+async function jevJudge(config: JevJudgeAssertionConfig, context: AssertionContext, options: AssertionRunOptions): Promise<AssertionResult> {
+  const resolved = resolveJevJudgeRequest(config, context, options);
+  if (!resolved.ok) {
+    const record = judgeRecord(config, false, resolved.reason, { error: resolved.reason });
+    await options.onJudgeRecord?.(record);
+    return assertionResult(config, false, resolved.reason, { error: resolved.reason }, undefined, config.threshold);
+  }
+
+  try {
+    if (!options.judgeRunner) throw new Error('jevJudge requires a configured judge runner');
+    const judgeResult = validateJudgeResult(await options.judgeRunner(resolved.request));
+    const pass = judgeResult.score >= config.threshold && judgeResult.pass !== false;
+    const reason = judgeResult.pass === false && judgeResult.score >= config.threshold
+      ? `Judge explicitly failed: ${judgeResult.reason}`
+      : judgeResult.reason;
+    const metadata = buildJudgeAssertionMetadata(resolved.request, judgeResult.metadata);
+    await options.onJudgeRecord?.({
+      id: config.id,
+      assertionId: config.id,
+      type: 'jevJudge',
+      provider: resolved.request.provider,
+      model: resolved.request.model,
+      threshold: config.threshold,
+      score: judgeResult.score,
+      pass,
+      reason,
+      inputs: resolved.request.inputs,
+      metadata,
+    });
+    return assertionResult(config, pass, reason, metadata, judgeResult.score, config.threshold);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    await options.onJudgeRecord?.({
+      id: config.id,
+      assertionId: config.id,
+      type: 'jevJudge',
+      provider: resolved.request.provider,
+      model: resolved.request.model,
+      threshold: config.threshold,
+      pass: false,
+      reason,
+      inputs: resolved.request.inputs,
+      error: reason,
+    });
+    return assertionResult(config, false, reason, { provider: resolved.request.provider, model: resolved.request.model, error: reason }, undefined, config.threshold);
+  }
+}
+
 function resolveJudgeRequest(
   config: LlmJudgeAssertionConfig,
   context: AssertionContext,
@@ -295,6 +345,31 @@ function resolveJudgeRequest(
       threshold: config.threshold,
       inputs,
       prompt,
+    },
+  };
+}
+
+function resolveJevJudgeRequest(
+  config: JevJudgeAssertionConfig,
+  context: AssertionContext,
+  options: AssertionRunOptions,
+): { ok: true; request: JudgeRequest } | { ok: false; reason: string } {
+  const provider = config.judge.provider ?? options.judgeDefaults?.jev?.provider;
+  if (!provider) return { ok: false, reason: 'jevJudge requires judge.provider or top-level judge.jev.provider' };
+  const inputs = redactJson(buildJudgeInputs(config.judge.inputs, context), options.redactions ?? []) as Partial<Record<JudgeInputRef, unknown>>;
+  return {
+    ok: true,
+    request: {
+      assertionId: config.id,
+      judgeType: 'jevJudge',
+      provider,
+      model: config.judge.model ?? options.judgeDefaults?.jev?.model,
+      apiKeyEnv: config.judge.apiKeyEnv ?? options.judgeDefaults?.jev?.apiKeyEnv,
+      timeoutMs: config.judge.timeoutMs ?? options.judgeDefaults?.jev?.timeoutMs,
+      rubric: config.judge.rubric,
+      threshold: config.threshold,
+      inputs,
+      prompt: config.judge.rubric,
     },
   };
 }
@@ -369,11 +444,11 @@ function buildJudgeAssertionMetadata(request: JudgeRequest, judgeMetadata: Recor
   };
 }
 
-function judgeRecord(config: LlmJudgeAssertionConfig, pass: boolean, reason: string, metadata?: Record<string, unknown>): JudgeRecord {
+function judgeRecord(config: LlmJudgeAssertionConfig | JevJudgeAssertionConfig, pass: boolean, reason: string, metadata?: Record<string, unknown>): JudgeRecord {
   return {
     id: config.id,
     assertionId: config.id,
-    type: 'llmJudge',
+    type: config.type,
     threshold: config.threshold,
     pass,
     reason,
@@ -432,8 +507,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isLlmJudgeConfig(config: AssertionConfig): config is LlmJudgeAssertionConfig {
-  return config.type === 'llmJudge';
+function isJudgeConfig(config: AssertionConfig): config is LlmJudgeAssertionConfig | JevJudgeAssertionConfig {
+  return config.type === 'llmJudge' || config.type === 'jevJudge';
 }
 
 function matchesToolName(actual: string, expected: string): boolean {

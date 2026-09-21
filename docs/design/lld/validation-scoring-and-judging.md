@@ -6,7 +6,7 @@
 
 ## How this fits
 
-This LLD defines how test-case-local assertions, judge assertion thresholds, project-level scoring weights, and structured metrics produce pass/fail results and comparable scores while preserving the HLD invariants for explicit scenario lifecycle and deterministic measurement.
+This LLD defines how test-case-local assertions, LLM and structured Jev judge thresholds, project-level scoring weights, and structured metrics produce pass/fail results and comparable scores while preserving the HLD invariants for explicit scenario lifecycle and deterministic measurement.
 
 ## 1. Domain Overview
 
@@ -17,14 +17,14 @@ Assertion criteria live on individual test cases and steps. Global judge config 
 The scoring layer combines three sources:
 
 1. **Assertion pass rate:** pass/fail results from non-judge assertions over output, exit code, events, metadata, and workspace diffs.
-2. **Judge assertion score:** normalized scores from `llmJudge` assertions. Judge assertions are still assertions and can gate step progression.
+2. **Judge assertion score:** normalized scores from `llmJudge` and `jevJudge` assertions. Judge assertions are still assertions and can gate step progression.
 3. **Structured metrics:** project-configured metrics such as latency, token usage, and cost.
 
 ## 2. Data Model / Contracts
 
 ### YAML shape
 
-Global judge config defines LLM-as-judge defaults. Scoring config defines score types and weights in one place:
+Global judge config defines LLM and Jev judge defaults. Scoring config defines score types and weights in one place:
 
 ```yaml
 judge:
@@ -105,6 +105,12 @@ interface LlmJudgeAssertionConfig extends BaseAssertionConfig {
   judge: JudgeAssertionDefinition;
 }
 
+interface JevJudgeAssertionConfig extends BaseAssertionConfig {
+  type: 'jevJudge';
+  threshold: number;
+  judge: { provider: 'typesafe' | 'openrouter' | 'vercel-ai-gateway'; rubric: string; inputs: JudgeInputRef[] };
+}
+
 type AssertionConfig = BaseAssertionConfig | LlmJudgeAssertionConfig;
 
 interface AssertionResult {
@@ -157,6 +163,11 @@ interface JudgeResult {
 ```
 
 Judge defaults come from top-level `judge`. A judge assertion can override `provider`, `model`, `apiKeyEnv`, `temperature`, or `promptTemplate` for that assertion only. The assertion must provide its own `rubric`, `inputs`, and `threshold`.
+
+Jev defaults are nested under `judge.jev`. Jev requires an explicit provider,
+uses a typed Noul question with the rubric as instructions, and maps its
+probability of true to `JudgeResult.score`. It does not use adapter fallback or
+produce a generated rationale.
 
 When explicit judge config is used, `provider`, `model`, and `apiKeyEnv` are required as a complete set after top-level defaults are applied. When no explicit provider/model/api key is configured, the runner falls back to the first configured agent whose adapter supports headless completion.
 

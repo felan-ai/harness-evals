@@ -135,7 +135,7 @@ For each test-case/agent entry, the runner creates an output context, seeds one 
 ### Scoring run
 
 1. Test-case step assertions evaluate exit code, output, tool calls, workspace diff, metadata, and step-specific expectations.
-2. LLM-as-judge assertions evaluate configured rubrics using redacted output records and must declare a score threshold for pass/fail.
+2. LLM-as-judge and structured Jev assertions evaluate configured rubrics using redacted output records and must declare a score threshold for pass/fail.
 3. Structured score buckets normalize project-configured metrics such as assertion pass rate, latency, token usage, and cost.
 4. Project-level scoring weights aggregate step scores into test-case scores and run summaries.
 
@@ -195,7 +195,7 @@ The framework uses adapter-reported totals as-is and does not compute cost from 
 
 Assertions remain the hard pass/fail contract for required behavior. A required assertion failure blocks later steps in a gated multi-step test case. Non-required assertions can contribute findings and scores without stopping the test case.
 
-LLM judging is modeled as an assertion type. Judge calls use `@mariozechner/pi-ai` for provider/model resolution, request execution, and usage/cost capture. A judge assertion returns a normalized score and passes only when its score meets the assertion threshold. Top-level judge config defines LLM-as-judge defaults. Scoring is a separate rollup layer over assertion outcomes, judge assertion scores, and project-configured metrics. Project scoring config defines score types and weights; individual test cases keep their own assertion criteria. Final summaries include both pass/fail status and comparable scores.
+LLM judging is modeled as an assertion type, and Jev is modeled as a separate structured judge assertion. LLM calls use `@earendil-works/pi-ai`; Jev calls use explicit TypeSafe, OpenRouter, or Vercel AI Gateway transports. Both return a normalized score and pass only when the score meets the assertion threshold. Top-level judge config defines the corresponding defaults. Scoring is a separate rollup layer over assertion outcomes, judge assertion scores, and project-configured metrics. Project scoring config defines score types and weights; individual test cases keep their own assertion criteria. Final summaries include both pass/fail status and comparable scores.
 
 ### Isolation, secrets, and config
 
@@ -275,8 +275,10 @@ Visualization is a read model, not the source of truth. Output records and provi
 - Scoring combines assertion pass rates, judge assertion scores, and project-configured structured metrics.
 - Assertions are defined on individual test cases and steps.
 - `type: llmJudge` is an assertion type with a required score threshold.
+- `type: jevJudge` is a structured Boolean-probability assertion with a required score threshold.
 - Explicit LLM-as-judge requests use `@mariozechner/pi-ai`; otherwise the first configured agent adapter with headless completion can act as the judge.
-- Top-level judge config defines LLM-as-judge defaults.
+- Jev provider selection is explicit; it does not use adapter fallback or credential-driven auto selection.
+- Top-level judge config defines LLM-as-judge and nested Jev defaults.
 - Project-level scoring config defines score types and weights.
 - Output persistence is handled by output providers.
 - If no output provider is configured, the built-in file output provider stores all output on the filesystem.

@@ -59,7 +59,7 @@ export function buildScenarioScoreSummary(scoring: ProjectScoringConfig, steps: 
 }
 
 function assertionPassRateBucket(scoring: ProjectScoringConfig, assertions: AssertionResult[]): ScoreBucketResult | undefined {
-  const nonJudge = assertions.filter((assertion) => assertion.type !== 'llmJudge');
+  const nonJudge = assertions.filter((assertion) => !isJudgeAssertion(assertion));
   if (nonJudge.length === 0) return undefined;
   const passed = nonJudge.filter((assertion) => assertion.pass).length;
   return {
@@ -74,7 +74,7 @@ function assertionPassRateBucket(scoring: ProjectScoringConfig, assertions: Asse
 
 function judgeScoreBucket(scoring: ProjectScoringConfig, assertions: AssertionResult[]): ScoreBucketResult | undefined {
   const judgeScores = assertions
-    .filter((assertion) => assertion.type === 'llmJudge' && typeof assertion.score === 'number' && Number.isFinite(assertion.score))
+    .filter((assertion) => isJudgeAssertion(assertion) && typeof assertion.score === 'number' && Number.isFinite(assertion.score))
     .map((assertion) => assertion.score as number);
   if (judgeScores.length === 0) return undefined;
   const average = judgeScores.reduce((total, score) => total + score, 0) / judgeScores.length;
@@ -197,4 +197,8 @@ function roundScore(value: number): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isJudgeAssertion(assertion: AssertionResult): boolean {
+  return assertion.type === 'llmJudge' || assertion.type === 'jevJudge';
 }

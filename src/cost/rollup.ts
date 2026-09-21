@@ -166,7 +166,7 @@ export function costReportFromJudgeAssertions(
   const reports: CostReport[] = [];
 
   for (const assertion of assertions) {
-    if (assertion.type !== 'llmJudge') continue;
+    if (assertion.type !== 'llmJudge' && assertion.type !== 'jevJudge') continue;
     const metadata = readRecord(assertion.metadata);
     const usage = readRecord(metadata?.usage);
     const cost = readRecord(metadata?.cost);

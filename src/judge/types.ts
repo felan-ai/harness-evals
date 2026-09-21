@@ -2,10 +2,12 @@ import type { JudgeInputRef } from '../config/schema.js';
 
 export interface JudgeRequest {
   assertionId?: string;
+  judgeType?: 'llmJudge' | 'jevJudge';
   provider?: string;
   model?: string;
   apiKeyEnv?: string;
   temperature?: number;
+  timeoutMs?: number;
   rubric: string;
   threshold: number;
   inputs: Partial<Record<JudgeInputRef, unknown>>;
@@ -22,7 +24,7 @@ export interface JudgeResult {
 export interface JudgeRecord {
   id?: string;
   assertionId?: string;
-  type: 'llmJudge';
+  type: 'llmJudge' | 'jevJudge';
   provider?: string;
   model?: string;
   threshold: number;

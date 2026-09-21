@@ -4,6 +4,7 @@ import {
   type BenchmarkDefinition,
   type DockerConfig,
   type HarnessConfig,
+  type JudgeDefaults,
   type MockConfig,
   type OutputConfig,
   type ProjectScoringConfig,
@@ -33,6 +34,7 @@ export function mergeHarnessConfig(base: HarnessConfig, override: HarnessConfigO
   return {
     ...base,
     ...definedObject(override),
+    judge: mergeJudgeDefaults(base.judge, override.judge),
     workspace: mergeWorkspaceConfig(base.workspace, override.workspace),
     docker: mergeDockerConfig(base.docker, override.docker),
     agents: mergeRecord(base.agents, override.agents),
@@ -44,6 +46,17 @@ export function mergeHarnessConfig(base: HarnessConfig, override: HarnessConfigO
     scoring: mergeScoringConfig(base.scoring, override.scoring),
     results: mergeResultsConfig(base.results, override.results),
     benchmarks: cloneBenchmarks(override.benchmarks ?? base.benchmarks),
+  };
+}
+
+function mergeJudgeDefaults(base: JudgeDefaults | undefined, override: JudgeDefaults | undefined): JudgeDefaults | undefined {
+  if (!base && !override) return undefined;
+  return {
+    ...(base ?? {}),
+    ...(definedObject(override) as Partial<JudgeDefaults>),
+    jev: base?.jev || override?.jev
+      ? { ...(base?.jev ?? {}), ...(override?.jev ?? {}) }
+      : undefined,
   };
 }
 
