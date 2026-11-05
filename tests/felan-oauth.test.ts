@@ -87,11 +87,11 @@ test('Felan OAuth persists credentials, reuses them, and refreshes expired crede
   const provider = {
     async login() {
       calls.push('login');
-      return { access: 'access-1', refresh: 'refresh-1', expires: Date.now() + 3_600_000 };
+      return { type: 'oauth' as const, access: 'access-1', refresh: 'refresh-1', expires: Date.now() + 3_600_000 };
     },
-    async refreshToken() {
+    async refresh() {
       calls.push('refresh');
-      return { access: 'access-2', refresh: 'refresh-2', expires: Date.now() + 3_600_000 };
+      return { type: 'oauth' as const, access: 'access-2', refresh: 'refresh-2', expires: Date.now() + 3_600_000 };
     },
   };
   try {

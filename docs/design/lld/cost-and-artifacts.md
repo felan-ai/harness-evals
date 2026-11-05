@@ -106,7 +106,7 @@ Rules:
 2. Missing token counts do not fail a step; they remain absent in the cost report.
 3. Missing cost totals do not fail a step; `totalCost` remains absent.
 4. Cost summaries group by provider, model, step, test case, agent, runtime scenario, and total run when those dimensions are available.
-5. Judge model usage and cost from `@mariozechner/pi-ai` responses are included in cost reports when available.
+5. Judge model usage and cost from `@earendil-works/pi-ai` responses are included in cost reports when available.
 6. Mixed currencies are not summed into one `totalCost`; each currency remains separate in metadata or rollups.
 
 ## 4. Read Path / Write Path
@@ -114,7 +114,7 @@ Rules:
 ### Read path
 
 1. Read adapter `cost` values from in-memory event summaries.
-2. Read judge usage/cost metadata from `@mariozechner/pi-ai` responses.
+2. Read judge usage/cost metadata from `@earendil-works/pi-ai` responses.
 3. Read existing cost output records only when building a summary from persisted output.
 
 ### Write path
@@ -149,7 +149,7 @@ Rules:
 - Adapters provide session cost totals when the coding agent exposes them.
 - The framework uses adapter-reported cost totals as-is.
 - Cost summaries include per-step, per-provider, per-model, per-agent, and total rollups when reported dimensions are available.
-- Judge usage and cost from `@mariozechner/pi-ai` responses are included in cost rollups when available.
+- Judge usage and cost from `@earendil-works/pi-ai` responses are included in cost rollups when available.
 - Cost data is emitted through output records and persisted by output providers.
 
 ### Open decisions

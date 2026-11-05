@@ -21,6 +21,11 @@ agents:
 
 The adapter invokes Felan's supported `--mode json` headless interface and keeps
 per-run settings and selected credentials under an isolated `FELAN_AGENT_DIR`.
+The harness always removes that run-owned config directory after success,
+failure, or setup error. This deletes copies created for the run, not the
+original auth profile or environment credentials. Diagnostic artifacts stay in
+the retained run workspace and must contain only allowlisted, sanitized
+metadata—not prompts, transcripts, raw provider errors, or credentials.
 
 ## Commands
 
@@ -64,14 +69,14 @@ Flags:
 - `--image <ref>`: use a ready Docker image for all selected runs and skip managed image builds.
 - `--refresh-managed-image`: rebuild the selected managed image before running, using `--no-cache` and Docker `--pull` unless `docker.pullOnRefresh: false`.
 - `--cleanup`: delete adapter cleanup paths after each run. You can also set `HARNESS_EVALS_CLEANUP=1`.
-- `--no-cleanup`: keep adapter cleanup paths after each run. This is the default.
+- `--no-cleanup`: keep adapter cleanup paths after each run. This is the default. Run-owned config and credential copies are always deleted; workspaces and diagnostic artifacts remain available.
 
 Output:
 
 - Prints one row per case/agent result, including artifact path.
 - Prints `Summary: <path>` for the harness summary output.
 - Exits with code `0` when all selected runs pass, `1` when any run fails or the command errors.
-- Keeps adapter cleanup paths unless `--cleanup` or `HARNESS_EVALS_CLEANUP=1` is set.
+- Adapter cleanup paths are retained by default and deleted only when `--cleanup` or `HARNESS_EVALS_CLEANUP=1` is set. The run-owned config directory is always deleted; the workspace and its sanitized diagnostic artifacts remain in the run directory.
 
 ### `list`
 

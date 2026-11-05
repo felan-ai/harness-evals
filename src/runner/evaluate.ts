@@ -351,6 +351,7 @@ export async function runTestCase(
     if (dispatcher) await persistErrorResult(config, dispatcher, result, currentStepId, activeBatch);
     return result;
   } finally {
+    await rm(configDir, { recursive: true, force: true });
     if (cleanup) await Promise.all(cleanupPaths.map((path) => rm(path, { recursive: true, force: true })));
   }
 }

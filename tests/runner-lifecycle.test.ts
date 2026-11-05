@@ -200,6 +200,123 @@ assert: []
   }
 });
 
+test('run-owned credential configuration is always removed while workspaces remain', async () => {
+  const root = await tempRoot();
+  const restoreDocker = await installFakeDocker(root);
+  const originalAuthPath = join(root, '.harness-evals', 'auth', 'profile', 'auth.json');
+
+  try {
+    await mkdir(join(root, '.harness-evals', 'auth', 'profile'), { recursive: true, mode: 0o700 });
+    await writeFile(originalAuthPath, '{"persistent":"original"}', { mode: 0o600 });
+    await writeHarnessProject(root, `
+id: credential-cleanup
+prompt: credential cleanup
+config:
+  script: console.log('credential cleanup')
+assert: []
+`);
+
+    const baseAdapter = createLifecycleAdapter([]);
+    const adapter = { ...baseAdapter, async prepareStep(input: AgentStepPrepareInput) {
+      await writeFile(join(input.configDir, 'run-auth.json'), '{"secret":"run-owned"}', { mode: 0o600 });
+      return baseAdapter.prepareStep(input);
+    } };
+    const result = await runHarness({ cwd: root, adapters: [adapter], cleanup: false });
+    const run = result.results[0];
+
+    expect(await pathExists(join(run.runDir, 'config'))).toBe(false);
+    expect(await pathExists(join(run.runDir, 'workspace'))).toBe(true);
+    expect(await readFile(originalAuthPath, 'utf8')).toBe('{"persistent":"original"}');
+  } finally {
+    restoreDocker();
+  }
+});
+
+test('run-owned configuration is removed after setup errors', async () => {
+  const root = await tempRoot();
+  const restoreDocker = await installFakeDocker(root);
+
+  try {
+    await writeHarnessProject(root, `
+id: credential-cleanup-setup-error
+workspace:
+  setup:
+    - command: node
+      args: [-e, "process.exit(7)"]
+prompt: credential cleanup setup error
+assert: []
+`);
+    const setupError = await runHarness({ cwd: root, adapters: [createLifecycleAdapter([])], cleanup: false });
+    expect(setupError.results[0].status).toBe('error');
+    expect(await pathExists(join(setupError.results[0].runDir, 'config'))).toBe(false);
+    expect(await pathExists(join(setupError.results[0].runDir, 'workspace'))).toBe(true);
+  } finally {
+    restoreDocker();
+  }
+});
+
+test('failed grading retains safe project diagnostics while deleting run-owned credentials', async () => {
+  const root = await tempRoot();
+  const restoreDocker = await installFakeDocker(root);
+  const cleanupPaths: string[] = [];
+  const persistentAuth = join(root, '.harness-evals', 'auth', 'profile', 'auth.json');
+
+  try {
+    await mkdir(join(root, '.harness-evals', 'auth', 'profile'), { recursive: true, mode: 0o700 });
+    await writeFile(persistentAuth, '{"profile":"persistent"}', { mode: 0o600 });
+    await writeHarnessProject(root, `
+id: verifier-diagnostic-retention
+prompt: Write a sanitized diagnostic and remain verifiable.
+config:
+  script: |
+    const { mkdirSync, writeFileSync } = require('node:fs');
+    mkdirSync('.eval-output', { recursive: true });
+    writeFileSync('.eval-output/diagnostics.json', JSON.stringify({ status: 'failed', failures: [{ stage: 'session-prompt', category: 'assistant-turn-failed' }] }));
+    writeFileSync('answer.txt', 'preserved');
+    console.log('OK');
+verifier:
+  command: node
+  args:
+    - -e
+    - |
+      const { writeFileSync } = require('node:fs');
+      writeFileSync('verifier-diagnostics.json', JSON.stringify({ check: 'expected-quality', status: 'failed' }));
+      writeFileSync('reward.txt', '0');
+  rewardFile: reward.txt
+  rewardFormat: text
+assert:
+  - type: contains
+    value: OK
+`);
+    const baseAdapter = createCleanupAdapter(cleanupPaths);
+    const adapter = { ...baseAdapter, async prepareStep(input: AgentStepPrepareInput) {
+      await writeFile(input.configDir + '/run-auth.json', '{"secret":"run-owned"}', { mode: 0o600 });
+      const plan = await baseAdapter.prepareStep(input);
+      return { ...plan, argv: ['node', '-e', `const { mkdirSync, writeFileSync } = require('node:fs'); mkdirSync('.eval-output', { recursive: true }); writeFileSync('.eval-output/diagnostics.json', JSON.stringify({ status: 'failed', failures: [{ category: 'assistant-turn-failed' }] })); writeFileSync('answer.txt', 'preserved'); console.log('OK');`] };
+    } };
+    const result = await runHarness({ cwd: root, adapters: [adapter], cleanup: true });
+    const run = result.results[0];
+
+    expect(run.steps[0].status).toBe('passed');
+    expect(run.verifier?.metadata.rewardError).toBeUndefined();
+    expect(run.status).toBe('failed');
+    expect(run.verifier?.status).toBe('failed');
+    expect(run.verifier?.reward?.values.reward).toBe(0);
+    expect(await readFile(join(run.runDir, 'workspace', '.eval-output', 'diagnostics.json'), 'utf8'))
+      .toContain('assistant-turn-failed');
+    expect(JSON.parse(await readFile(join(run.runDir, 'workspace', 'verifier-diagnostics.json'), 'utf8')))
+      .toEqual({ check: 'expected-quality', status: 'failed' });
+    expect(await pathExists(join(run.runDir, 'config'))).toBe(false);
+    expect(await pathExists(cleanupPaths[0])).toBe(false);
+    expect(await pathExists(join(run.runDir, 'workspace'))).toBe(true);
+    expect(await readFile(join(run.runDir, 'workspace', 'answer.txt'), 'utf8')).toBe('preserved');
+    expect(await readFile(persistentAuth, 'utf8')).toBe('{"profile":"persistent"}');
+    expect(JSON.stringify(run)).not.toContain('run-owned');
+  } finally {
+    restoreDocker();
+  }
+});
+
 test('post-agent verifier parses rewards and controls run status', async () => {
   const root = await tempRoot();
   const restoreDocker = await installFakeDocker(root);
@@ -957,7 +1074,7 @@ function createCleanupAdapter(cleanupPaths: string[]): AgentAdapter {
   return {
     name: 'lifecycle',
     async prepareStep(input: AgentStepPrepareInput) {
-      const cleanupPath = join(input.configDir, `cleanup-${cleanupPaths.length}`);
+      const cleanupPath = join(input.runDir, `adapter-cleanup-${cleanupPaths.length}`);
       await mkdir(cleanupPath, { recursive: true });
       cleanupPaths.push(cleanupPath);
 

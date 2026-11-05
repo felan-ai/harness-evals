@@ -12,7 +12,7 @@ This LLD defines how test-case-local assertions, LLM and structured Jev judge th
 
 Validation answers “may the test case continue?” Scoring answers “how good was the result?” A required assertion failure stops later steps in a multi-step test case. Scores are recorded even when a test case fails, as long as enough output records exist to evaluate the scoring buckets.
 
-Assertion criteria live on individual test cases and steps. Global judge config controls LLM-as-judge defaults. Judge calls use `@mariozechner/pi-ai` for provider/model resolution, request execution, and usage/cost capture. Project-level scoring config defines score types, weights, and metric normalization.
+Assertion criteria live on individual test cases and steps. Global judge config controls LLM-as-judge defaults. Judge calls use `@earendil-works/pi-ai` for provider/model resolution, request execution, and usage/cost capture. Project-level scoring config defines score types, weights, and metric normalization.
 
 The scoring layer combines three sources:
 
@@ -173,7 +173,7 @@ When explicit judge config is used, `provider`, `model`, and `apiKeyEnv` are req
 
 ### Judge runtime contract
 
-The explicit judge runtime uses `@mariozechner/pi-ai`:
+The explicit judge runtime uses `@earendil-works/pi-ai`:
 
 1. Resolve the configured `provider` and `model` through pi-ai model resolution.
 2. Build a pi-ai `Context` from the judge prompt and redacted input references.
@@ -330,7 +330,7 @@ Rules:
 - Project-level scoring config keeps score-type weights in one place.
 - Scores are normalized to `0..1` so heterogeneous buckets can be compared and weighted.
 - Judge definitions live in test-case assertions because rubrics are evaluation-specific.
-- Judge calls use `@mariozechner/pi-ai` so judge providers follow the same provider/model abstraction as the Pi coding agent.
+- Judge calls use `@earendil-works/pi-ai` so judge providers follow the same provider/model abstraction as the Pi coding agent.
 - Judge defaults live in top-level `judge` config because provider/model choices are usually shared.
 - Judge inputs are explicit output references, not whole-run dumps, to reduce cost and secret exposure.
 - Mock calls can be used as judge inputs when external integration behavior matters.
@@ -343,7 +343,7 @@ Rules:
 - Missing `required` means an assertion is required.
 - Test-case and step assertions define test-specific criteria.
 - `type: llmJudge` defines rubric-based LLM judging as an assertion.
-- Explicit `llmJudge` assertions run through `@mariozechner/pi-ai`; assertions without explicit judge config use the first configured adapter that supports headless completion.
+- Explicit `llmJudge` assertions run through `@earendil-works/pi-ai`; assertions without explicit judge config use the first configured adapter that supports headless completion.
 - `llmJudge` assertions require `threshold`.
 - Project-level `scoring` controls score-type weighting.
 - Supported metric score types are `latency`, `cost`, and `tokenUsage`.

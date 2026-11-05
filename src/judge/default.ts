@@ -1,9 +1,13 @@
 import { parseJudgeResponse } from './parse.js';
 import type { JudgeRequest, JudgeRunner } from './types.js';
 
-type PiAiModule = {
+type PiAiModels = {
   getModel(provider: string, model: string): unknown;
   complete(model: unknown, context: unknown, options?: Record<string, unknown>): Promise<PiAiAssistantMessage>;
+};
+
+type PiAiModule = {
+  builtinModels(): PiAiModels;
 };
 
 type PiAiAssistantMessage = {
@@ -28,9 +32,10 @@ export const defaultJudgeRunner: JudgeRunner = async (request) => {
   const apiKey = process.env[request.apiKeyEnv];
   if (!apiKey) throw new Error(`Judge credential env ${request.apiKeyEnv} is not set`);
 
-  const piAi = await importPiAi();
-  const model = piAi.getModel(request.provider, request.model);
-  const response = await piAi.complete(model, {
+  const models = (await importPiAi()).builtinModels();
+  const model = models.getModel(request.provider, request.model);
+  if (!model) throw new Error(`Unknown judge model ${request.provider}/${request.model}`);
+  const response = await models.complete(model, {
     systemPrompt: 'You are a strict evaluation judge. Return only valid JSON.',
     messages: [{ role: 'user', content: request.prompt, timestamp: Date.now() }],
   }, {
@@ -52,11 +57,11 @@ export const defaultJudgeRunner: JudgeRunner = async (request) => {
 };
 
 async function importPiAi(): Promise<PiAiModule> {
-  const specifier: string = '@earendil-works/pi-ai';
+  const specifier: string = '@earendil-works/pi-ai/providers/all';
   try {
     return await import(specifier) as PiAiModule;
   } catch (error) {
-    throw new Error(`Failed to load @earendil-works/pi-ai for llmJudge: ${errorMessage(error)}`);
+    throw new Error(`Failed to load @earendil-works/pi-ai/providers/all for llmJudge: ${errorMessage(error)}`);
   }
 }
 

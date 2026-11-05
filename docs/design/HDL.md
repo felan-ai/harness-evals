@@ -276,7 +276,7 @@ Visualization is a read model, not the source of truth. Output records and provi
 - Assertions are defined on individual test cases and steps.
 - `type: llmJudge` is an assertion type with a required score threshold.
 - `type: jevJudge` is a structured Boolean-probability assertion with a required score threshold.
-- Explicit LLM-as-judge requests use `@mariozechner/pi-ai`; otherwise the first configured agent adapter with headless completion can act as the judge.
+- Explicit LLM-as-judge requests use `@earendil-works/pi-ai`; otherwise the first configured agent adapter with headless completion can act as the judge.
 - Jev provider selection is explicit; it does not use adapter fallback or credential-driven auto selection.
 - Top-level judge config defines LLM-as-judge and nested Jev defaults.
 - Project-level scoring config defines score types and weights.

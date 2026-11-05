@@ -2,8 +2,8 @@ import { createInterface } from 'node:readline/promises';
 import { spawn } from 'node:child_process';
 import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
-import { getOAuthProvider } from '@earendil-works/pi-ai/oauth';
-import type { OAuthCredentials, OAuthLoginCallbacks } from '@earendil-works/pi-ai/oauth';
+import type { AuthPrompt, OAuthAuth, OAuthCredential, ProviderAuthInteraction } from '@earendil-works/pi-ai';
+import { builtinProviders } from '@earendil-works/pi-ai/providers/all';
 import type { AgentAuthConfig } from '../config/schema.js';
 
 const DEFAULT_PROFILE = 'default';
@@ -17,10 +17,7 @@ export interface FelanOAuthPreparation {
   refreshed: boolean;
 }
 
-interface OAuthProviderLike {
-  login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials>;
-  refreshToken(credentials: OAuthCredentials): Promise<OAuthCredentials>;
-}
+type OAuthProviderLike = Pick<OAuthAuth, 'login' | 'refresh'>;
 
 export async function prepareFelanOAuth(input: {
   projectRoot: string;
@@ -31,7 +28,8 @@ export async function prepareFelanOAuth(input: {
   const profile = input.auth.profile ?? DEFAULT_PROFILE;
   const authPath = join(input.projectRoot, '.harness-evals', 'auth', 'felan', profile, 'auth.json');
   await ensureSafeAuthFile(authPath, input.projectRoot);
-  const provider = input.providerOverride ?? getOAuthProvider(input.provider);
+  const provider = input.providerOverride
+    ?? builtinProviders().find((candidate) => candidate.id === input.provider)?.auth.oauth;
   if (!provider) throw new Error(`Unsupported Felan OAuth provider: ${input.provider}`);
 
   return withAuthLock(authPath, async () => {
@@ -45,11 +43,11 @@ export async function prepareFelanOAuth(input: {
       return { authPath, provider: input.provider, profile, loggedIn: true, refreshed: false };
     }
 
-    let credentials: OAuthCredentials;
+    let credentials: OAuthCredential;
     let refreshed = false;
     if (current) {
       try {
-        credentials = await provider.refreshToken(current);
+        credentials = await provider.refresh(current, new AbortController().signal);
         refreshed = true;
       } catch (error) {
         throw new Error(`Failed to refresh Felan OAuth token for ${input.provider}: ${errorMessage(error)}`);
@@ -61,28 +59,55 @@ export async function prepareFelanOAuth(input: {
       credentials = await login(provider, input.auth.openBrowser ?? true);
     }
 
-    await writeAuthFile(authPath, { ...auth, [input.provider]: { type: 'oauth', ...credentials } });
+    await writeAuthFile(authPath, { ...auth, [input.provider]: { ...credentials, type: 'oauth' } });
     return { authPath, provider: input.provider, profile, loggedIn: !refreshed, refreshed };
   });
 }
 
-async function login(provider: {
-  login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials>;
-}, openBrowser: boolean): Promise<OAuthCredentials> {
+async function login(provider: OAuthProviderLike, openBrowser: boolean): Promise<OAuthCredential> {
   const reader = createInterface({ input: process.stdin, output: process.stdout });
+  const interaction: ProviderAuthInteraction = {
+    signal: new AbortController().signal,
+    prompt: (prompt) => promptUser(reader, prompt),
+    notify: (event) => {
+      switch (event.type) {
+        case 'auth_url':
+          process.stderr.write(`\nOpen this URL to authenticate:\n${event.url}\n`);
+          if (event.instructions) process.stderr.write(`${event.instructions}\n`);
+          if (openBrowser) launchBrowser(event.url);
+          break;
+        case 'device_code':
+          process.stderr.write(`\nOpen ${event.verificationUri} and enter code: ${event.userCode}\n`);
+          if (openBrowser && event.openBrowserOnConfirm !== false) launchBrowser(event.verificationUri);
+          break;
+        case 'info':
+          process.stderr.write(`${event.message}\n`);
+          for (const link of event.links ?? []) process.stderr.write(`${link.label ? `${link.label}: ` : ''}${link.url}\n`);
+          break;
+        case 'progress':
+          process.stderr.write(`${event.message}\n`);
+          break;
+      }
+    },
+  };
   try {
-    return await provider.login({
-      onAuth: (info) => {
-        process.stderr.write(`\nOpen this URL to authenticate:\n${info.url}\n`);
-        if (info.instructions) process.stderr.write(`${info.instructions}\n`);
-        if (openBrowser) launchBrowser(info.url);
-      },
-      onPrompt: async (prompt) => reader.question(`${prompt.message}${prompt.placeholder ? ` (${prompt.placeholder})` : ''}: `),
-      onProgress: (message) => process.stderr.write(`${message}\n`),
-    });
+    return await provider.login(interaction);
   } finally {
     reader.close();
   }
+}
+
+async function promptUser(reader: ReturnType<typeof createInterface>, prompt: AuthPrompt): Promise<string> {
+  if (prompt.type !== 'select') {
+    return reader.question(`${prompt.message}${prompt.placeholder ? ` (${prompt.placeholder})` : ''}: `, { signal: prompt.signal });
+  }
+  prompt.options.forEach((option, index) => {
+    process.stderr.write(`${index + 1}. ${option.label}${option.description ? ` - ${option.description}` : ''}\n`);
+  });
+  const answer = (await reader.question(`${prompt.message} [1-${prompt.options.length}]: `, { signal: prompt.signal })).trim();
+  const selected = prompt.options[Number(answer) - 1] ?? prompt.options.find((option) => option.id === answer);
+  if (!selected) throw new Error(`Invalid selection: ${answer}`);
+  return selected.id;
 }
 
 async function ensureSafeAuthFile(path: string, projectRoot: string): Promise<void> {
@@ -104,7 +129,7 @@ async function ensureSafeAuthFile(path: string, projectRoot: string): Promise<vo
   await chmod(path, 0o600);
 }
 
-async function readAuthFile(path: string): Promise<Record<string, OAuthCredentials | { type?: unknown }>> {
+async function readAuthFile(path: string): Promise<Record<string, OAuthCredential | { type?: unknown }>> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(await readFile(path, 'utf8'));
@@ -112,7 +137,7 @@ async function readAuthFile(path: string): Promise<Record<string, OAuthCredentia
     throw new Error(`Failed to read Felan OAuth credentials at ${path}: ${errorMessage(error)}`);
   }
   if (!isRecord(parsed)) throw new Error(`Felan OAuth credentials at ${path} must be a JSON object`);
-  return parsed as Record<string, OAuthCredentials | { type?: unknown }>;
+  return parsed as Record<string, OAuthCredential | { type?: unknown }>;
 }
 
 async function writeAuthFile(path: string, auth: Record<string, unknown>): Promise<void> {
@@ -142,7 +167,7 @@ async function withAuthLock<T>(path: string, operation: () => Promise<T>): Promi
   }
 }
 
-function isOAuthCredentials(value: unknown): value is OAuthCredentials {
+function isOAuthCredentials(value: unknown): value is OAuthCredential {
   return isRecord(value)
     && value.type === 'oauth'
     && typeof value.access === 'string'

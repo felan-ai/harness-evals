@@ -210,7 +210,7 @@ Fixes:
 
 Symptom:
 
-- `Failed to load @mariozechner/pi-ai for llmJudge: ...`
+- `Failed to load @earendil-works/pi-ai/providers/all for llmJudge: ...`
 
 Fixes:
 

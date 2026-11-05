@@ -579,7 +579,7 @@ Run flags:
   --image ref                 Use a ready Docker image and skip managed builds
   --refresh-managed-image     Rebuild managed Docker image with --no-cache (and --pull unless docker.pullOnRefresh is false)
   --cleanup                   Delete adapter cleanup paths after each run (or set HARNESS_EVALS_CLEANUP=1)
-  --no-cleanup                Keep adapter cleanup paths after each run (default)
+  --no-cleanup                Keep adapter cleanup paths after each run (default); run config is always deleted
 `);
 }
 
